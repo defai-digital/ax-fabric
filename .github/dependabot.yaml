@@ -10,7 +10,6 @@ updates:
     directories:
       - '/'
       - 'core'
-      - 'docs'
       - 'extensions'
       - 'extensions/*'
       - 'web-app'
