@@ -163,6 +163,18 @@ export class CustomChatTransport implements ChatTransport<UIMessage> {
           .getState()
           .getProviderByName(providerId)
 
+        const activeProvider = updatedProvider ?? provider
+
+        // Guard: provider must have an API key registered before we attempt a request.
+        // Without a key the Rust proxy has no provider_configs entry and returns a 404,
+        // which causes the SSE parser to hang silently instead of showing an error.
+        if (!activeProvider.api_key) {
+          throw new Error(
+            `No API key configured for provider "${activeProvider.provider}". ` +
+            `Go to Settings → AI Providers and add your API key.`
+          )
+        }
+
         // Get assistant parameters from current assistant
         const currentAssistant = useAssistant.getState().currentAssistant
         const inferenceParams = currentAssistant?.parameters
@@ -170,7 +182,7 @@ export class CustomChatTransport implements ChatTransport<UIMessage> {
         // Create the model using the factory
         this.model = await ModelFactory.createModel(
           modelId,
-          updatedProvider ?? provider,
+          activeProvider,
           inferenceParams ?? {}
         )
       } catch (error) {
