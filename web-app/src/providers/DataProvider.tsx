@@ -65,7 +65,7 @@ const syncRemoteProviders = () => {
 }
 
 export function DataProvider() {
-  const { setProviders } =
+  const { setProviders, providers } =
     useModelProvider()
 
   const { checkForUpdate } = useAppUpdater()
@@ -146,8 +146,9 @@ export function DataProvider() {
       })
   }, [serviceHub, setThreads])
 
-  // Sync remote providers with backend when providers change
-  const providers = useModelProvider.getState().providers
+  // Sync remote providers with backend when providers change.
+  // `providers` comes from the reactive hook above so this effect re-fires
+  // whenever a provider is added/removed or its API key / base URL changes.
   useEffect(() => {
     syncRemoteProviders()
   }, [providers])

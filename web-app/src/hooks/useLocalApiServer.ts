@@ -36,7 +36,7 @@ type LocalApiServerState = {
 export const useLocalApiServer = create<LocalApiServerState>()(
   persist(
     (set) => ({
-      enableOnStartup: false,
+      enableOnStartup: true,
       setEnableOnStartup: (value) => set({ enableOnStartup: value }),
       serverHost: '127.0.0.1',
       setServerHost: (value) => set({ serverHost: value }),

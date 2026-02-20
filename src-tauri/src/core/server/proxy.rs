@@ -12,7 +12,7 @@ use std::sync::Arc;
 use tauri::Manager;
 use tokio::sync::Mutex;
 
-use crate::core::state::{AppState, ServerHandle};
+use crate::core::state::{AppState, ProviderCustomHeader, ServerHandle};
 
 /// Transform Anthropic /messages API body to OpenAI /chat/completions body
 fn transform_anthropic_to_openai(body: &serde_json::Value) -> Option<serde_json::Value> {
@@ -811,6 +811,8 @@ async fn proxy_request<R: tauri::Runtime>(
     let mut target_base_url: Option<String> = None;
     let mut is_anthropic_messages = false;
     let mut provider_name: Option<String> = None;
+    // Provider-specific custom headers collected during routing, applied to outbound request
+    let mut provider_custom_headers: Vec<ProviderCustomHeader> = vec![];
 
     match (method.clone(), destination_path.as_str()) {
         // Anthropic /messages endpoint - tries /messages first, falls back to /chat/completions on error
@@ -873,6 +875,7 @@ async fn proxy_request<R: tauri::Runtime>(
                                     format!("{}{}", url.trim_end_matches('/'), "/messages")
                                 });
                                 session_api_key = provider_cfg.api_key.clone();
+                                provider_custom_headers = provider_cfg.custom_headers.clone();
                             }
                         } else {
                             // No remote provider configured for this model
@@ -954,7 +957,7 @@ async fn proxy_request<R: tauri::Runtime>(
                         let provider_configs = state.provider_configs.lock().await;
 
                         // Try to find a provider that has this model configured
-                        let provider_name = provider_configs
+                        provider_name = provider_configs
                             .iter()
                             .find(|(_, config)| {
                                 // Check if any model in this provider matches
@@ -1003,6 +1006,7 @@ async fn proxy_request<R: tauri::Runtime>(
                                 } else {
                                     session_api_key = None;
                                 }
+                                provider_custom_headers = provider_cfg.custom_headers.clone();
                             } else {
                                 log::error!("Provider config not found for '{provider}'");
                             }
@@ -1260,7 +1264,12 @@ async fn proxy_request<R: tauri::Runtime>(
     let mut outbound_req = client.request(method.clone(), upstream_url);
 
     for (name, value) in headers.iter() {
-        if name != hyper::header::HOST && name != hyper::header::AUTHORIZATION {
+        // Strip auth headers — the proxy injects the real provider key below.
+        // Also strip x-api-key so client dummy keys never reach the upstream API.
+        if name != hyper::header::HOST
+            && name != hyper::header::AUTHORIZATION
+            && name.as_str() != "x-api-key"
+        {
             outbound_req = outbound_req.header(name, value);
         }
     }
@@ -1269,9 +1278,18 @@ async fn proxy_request<R: tauri::Runtime>(
     let buffered_body_for_req = buffered_body.clone();
 
     if let Some(key) = session_api_key_for_req {
+        // Add key as both Authorization Bearer (OpenAI / Gemini / Groq / etc.)
+        // and x-api-key (Anthropic native format). Providers use whichever they support.
         outbound_req = outbound_req.header("Authorization", format!("Bearer {key}"));
+        outbound_req = outbound_req.header("x-api-key", key.clone());
     } else {
         log::debug!("No session API key available for this request");
+    }
+
+    // Apply provider-specific custom headers from provider_configs
+    // (e.g., anthropic-version: 2023-06-01 for Anthropic's OpenAI-compatible endpoint)
+    for ch in &provider_custom_headers {
+        outbound_req = outbound_req.header(ch.header.as_str(), ch.value.as_str());
     }
 
     let outbound_req_with_body = if let Some(bytes) = buffered_body_for_req {
