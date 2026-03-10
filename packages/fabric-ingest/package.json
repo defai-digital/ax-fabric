@@ -1,0 +1,45 @@
+{
+  "name": "@ax-fabric/fabric-ingest",
+  "version": "1.2.0",
+  "license": "AGPL-3.0-or-later",
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "bin": {
+    "ax-fabric": "./dist/cli.js"
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsup",
+    "clean": "node -e \"require('fs').rmSync('dist', {recursive:true, force:true})\"",
+    "test": "vitest run --config vitest.config.ts",
+    "test:watch": "vitest --config vitest.config.ts",
+    "typecheck": "tsc --noEmit",
+    "prepublishOnly": "pnpm build"
+  },
+  "dependencies": {
+    "@ax-fabric/akidb": "workspace:*",
+    "@ax-fabric/akidb-native": "workspace:*",
+    "@ax-fabric/contracts": "workspace:*",
+    "@modelcontextprotocol/sdk": "^1.27.1",
+    "cheerio": "^1.0.0",
+    "commander": "^13.1.0",
+    "csv-parse": "^5.6.0",
+    "mammoth": "^1.8.0",
+    "pdf-parse": "^1.1.1",
+    "yaml": "^2.7.0",
+    "zod": "^3.24.0"
+  },
+  "devDependencies": {
+    "@types/pdf-parse": "^1.1.4",
+    "tsup": "^8.4.0",
+    "typescript": "^5.7.0",
+    "vitest": "^3.0.0"
+  }
+}

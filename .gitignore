@@ -1,0 +1,86 @@
+# Secrets
+.env
+.env.*
+
+# Dependencies
+node_modules/
+
+# Build output
+packages/*/dist/
+
+# Rust build artifacts
+packages/akidb-native/target/
+packages/akidb-py/target/
+
+# Native binaries (rebuild locally via: cd packages/akidb-native && pnpm build)
+*.node
+*.so
+__pycache__/
+**/__pycache__/
+*.pyc
+
+# pnpm
+pnpm-lock.yaml
+
+# AutomatosX runtime / agent directories (entire tree)
+.automatosx/
+automatosx/
+ax.config.json
+automatosx.config.json
+opencode.json
+AGENTS.md
+CLAUDE.md
+
+# AI tool configs and session data
+.ax-cli/
+.ax-grok/
+.claude/
+.gemini/
+
+# Project subdirectories not part of the monorepo
+docs/
+issues/
+autoqa/
+web-app/
+src-tauri/
+extensions/
+
+# Local test data (not committed)
+data/
+
+# Local checkpoints
+checkpoints/
+
+# macOS
+.DS_Store
+**/.DS_Store
+
+# IDE / Editor
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# TypeScript incremental build info
+*.tsbuildinfo
+
+# OS files
+Thumbs.db
+Desktop.ini
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Coverage
+coverage/
+
+# Temporary / generated
+*.tmp
+*.bak
+
+# Local perf artifacts
+packages/fabric-ingest/perf/

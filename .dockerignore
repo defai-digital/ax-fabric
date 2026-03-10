@@ -1,0 +1,35 @@
+# Version control
+.git
+.gitignore
+
+# Rust build caches (huge — rebuilt inside Docker)
+packages/akidb-native/target
+packages/akidb-py/target
+
+# Node deps (reinstalled inside Docker)
+node_modules
+packages/*/node_modules
+
+# Built output (rebuilt inside Docker)
+packages/*/dist
+packages/akidb-native/*.node
+
+# Dev/test artifacts
+packages/akidb-native/benches
+packages/akidb-py
+data
+automatosx/tmp
+checkpoints
+**/*.test.ts
+**/*.spec.ts
+**/.DS_Store
+*.log
+
+# CI / editor
+.vscode
+.idea
+.claude
+.ax-cli
+opencode.json
+ax.config.json
+pnpm-lock.yaml

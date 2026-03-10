@@ -1,0 +1,657 @@
+/**
+ * CLI integration tests — programmatic invocation via commander's parseAsync.
+ *
+ * Each test creates a temp workspace, wires config to it, and invokes
+ * CLI commands without spawning child processes.
+ */
+
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
+import {
+  mkdtempSync,
+  writeFileSync,
+  readFileSync,
+  mkdirSync,
+  existsSync,
+  rmSync,
+} from "node:fs";
+import { join } from "node:path";
+import { tmpdir } from "node:os";
+
+import { Command } from "commander";
+import { AkiDB } from "@ax-fabric/akidb";
+
+import { registerInitCommand } from "./init.js";
+import { registerIngestAddCommand } from "./ingest-add.js";
+import { registerIngestDiffCommand } from "./ingest-diff.js";
+import { registerIngestRunCommand } from "./ingest-run.js";
+import { registerIngestStatusCommand } from "./ingest-status.js";
+import { registerSearchCommand } from "./search.js";
+
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+
+function makeTmpDir(prefix: string): string {
+  return mkdtempSync(join(tmpdir(), `cli-test-${prefix}-`));
+}
+
+/**
+ * Build a minimal FabricConfig YAML for testing.
+ * We write it as YAML content that the config-loader would parse.
+ */
+function writeTestConfig(
+  configPath: string,
+  overrides: {
+    dataRoot: string;
+    akidbRoot: string;
+    sources?: string[];
+    collection?: string;
+    dimension?: number;
+  },
+): void {
+  const sources = (overrides.sources ?? [])
+    .map((s) => `  - path: "${s}"`)
+    .join("\n");
+
+  const yaml = `
+fabric:
+  data_root: "${overrides.dataRoot}"
+
+akidb:
+  root: "${overrides.akidbRoot}"
+  collection: "${overrides.collection ?? "test-col"}"
+  metric: cosine
+  dimension: ${String(overrides.dimension ?? 128)}
+
+ingest:
+  sources:
+${sources || "  []"}
+  scan:
+    mode: incremental
+    fingerprint: sha256
+  chunking:
+    chunk_size: 512
+    overlap: 0.15
+
+embedder:
+  type: local
+  model_id: mock-embed-v1
+  dimension: ${String(overrides.dimension ?? 128)}
+  batch_size: 64
+`;
+  writeFileSync(configPath, yaml, "utf-8");
+}
+
+/**
+ * Create a test AkiDB instance and the default collection.
+ */
+function createTestDb(akidbRoot: string, dimension = 128): AkiDB {
+  mkdirSync(akidbRoot, { recursive: true });
+  const db = new AkiDB({
+    storagePath: akidbRoot,
+  });
+  db.createCollection({
+    collectionId: "test-col",
+    dimension,
+    metric: "cosine",
+    embeddingModelId: "mock-embed-v1",
+  });
+  return db;
+}
+
+// ─── Mock config-loader ──────────────────────────────────────────────────────
+
+// We mock the config-loader module to use test-specific paths.
+// The real config-loader is being built in parallel; these mocks ensure
+// CLI commands work with predictable test data.
+
+let mockConfigPath = "";
+let mockConfig: Record<string, unknown> = {};
+
+vi.mock("./config-loader.js", () => ({
+  resolveConfigPath: () => mockConfigPath,
+  loadConfig: (_path?: string) => mockConfig,
+  resolveDataRoot: (config: { fabric: { data_root: string } }) => config.fabric.data_root,
+  resolveToken: (auth: { token?: string; token_env?: string }) => {
+    if (auth.token) return auth.token;
+    if (auth.token_env) return process.env[auth.token_env];
+    return undefined;
+  },
+  writeConfig: (path: string, config: Record<string, unknown>) => {
+    const yaml = JSON.stringify(config, null, 2);
+    writeFileSync(path, yaml, "utf-8");
+    // Also update the mock so subsequent loadConfig calls see the change
+    mockConfig = config;
+  },
+}));
+
+// ─── Tests ───────────────────────────────────────────────────────────────────
+
+describe("CLI commands", () => {
+  let workDir: string;
+  let dataRoot: string;
+  let akidbRoot: string;
+  let sourceDir: string;
+  let configPath: string;
+  let db: AkiDB;
+
+  beforeEach(() => {
+    workDir = makeTmpDir("work");
+    dataRoot = join(workDir, "data");
+    akidbRoot = join(dataRoot, "akidb");
+    sourceDir = makeTmpDir("sources");
+    configPath = join(workDir, "config.yaml");
+
+    mkdirSync(dataRoot, { recursive: true });
+
+    db = createTestDb(akidbRoot);
+
+    // Set up mock config
+    mockConfigPath = configPath;
+    mockConfig = {
+      fabric: { data_root: dataRoot },
+      akidb: {
+        root: akidbRoot,
+        collection: "test-col",
+        metric: "cosine",
+        dimension: 128,
+      },
+      ingest: {
+        sources: [] as Array<{ path: string }>,
+        scan: { mode: "incremental", fingerprint: "sha256" },
+        chunking: { chunk_size: 512, overlap: 0.15 },
+      },
+      embedder: {
+        type: "local",
+        model_id: "mock-embed-v1",
+        dimension: 128,
+        batch_size: 64,
+      },
+    };
+
+    writeTestConfig(configPath, {
+      dataRoot,
+      akidbRoot,
+      sources: [],
+    });
+  });
+
+  afterEach(() => {
+    db.close();
+    rmSync(workDir, { recursive: true, force: true });
+    rmSync(sourceDir, { recursive: true, force: true });
+  });
+
+  // ─── init ────────────────────────────────────────────────────────────────
+
+  describe("init", () => {
+    it("creates workspace directories and config", async () => {
+      // Use a fresh directory for init testing
+      const initHome = join(workDir, "init-test");
+
+      // Temporarily override homedir for the init command
+      const originalHome = process.env["HOME"];
+      process.env["HOME"] = initHome;
+
+      const program = new Command();
+      program.exitOverride();
+      registerInitCommand(program);
+
+      // Suppress console output during test
+      const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+
+      try {
+        await program.parseAsync(["node", "test", "init"]);
+      } catch {
+        // Commander may throw on exitOverride
+      }
+
+      logSpy.mockRestore();
+      process.env["HOME"] = originalHome;
+
+      const axFabricDir = join(initHome, ".ax-fabric");
+      expect(existsSync(axFabricDir)).toBe(true);
+      expect(existsSync(join(axFabricDir, "data"))).toBe(true);
+      expect(existsSync(join(axFabricDir, "data", "akidb"))).toBe(true);
+      expect(existsSync(join(axFabricDir, "config.yaml"))).toBe(true);
+    });
+  });
+
+  // ─── ingest add ──────────────────────────────────────────────────────────
+
+  describe("ingest add", () => {
+    it("adds a source path to config", async () => {
+      const program = new Command();
+      program.exitOverride();
+      const ingest = program.command("ingest");
+      registerIngestAddCommand(ingest);
+
+      const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+
+      await program.parseAsync(["node", "test", "ingest", "add", sourceDir]);
+
+      logSpy.mockRestore();
+
+      // Check the mock config was updated
+      const sources = (mockConfig as { ingest: { sources: Array<{ path: string }> } }).ingest.sources;
+      expect(sources.length).toBe(1);
+      expect(sources[0]!.path).toBe(sourceDir);
+    });
+
+    it("does not add duplicate paths", async () => {
+      // Pre-add the source to config
+      (mockConfig as { ingest: { sources: Array<{ path: string }> } }).ingest.sources = [
+        { path: sourceDir },
+      ];
+
+      const program = new Command();
+      program.exitOverride();
+      const ingest = program.command("ingest");
+      registerIngestAddCommand(ingest);
+
+      const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+
+      await program.parseAsync(["node", "test", "ingest", "add", sourceDir]);
+
+      logSpy.mockRestore();
+
+      const sources = (mockConfig as { ingest: { sources: Array<{ path: string }> } }).ingest.sources;
+      expect(sources.length).toBe(1);
+    });
+  });
+
+  // ─── ingest diff ─────────────────────────────────────────────────────────
+
+  describe("ingest diff", () => {
+    it("shows all files as new when no previous ingest", async () => {
+      writeFileSync(join(sourceDir, "doc.txt"), "Hello world content for testing.");
+
+      (mockConfig as { ingest: { sources: Array<{ path: string }> } }).ingest.sources = [
+        { path: sourceDir },
+      ];
+
+      const program = new Command();
+      program.exitOverride();
+      const ingest = program.command("ingest");
+      registerIngestDiffCommand(ingest);
+
+      const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+
+      await program.parseAsync(["node", "test", "ingest", "diff"]);
+
+      const output = logSpy.mock.calls.map((c) => c.join(" ")).join("\n");
+      logSpy.mockRestore();
+
+      // Should report files as new since no registry exists
+      expect(output).toContain("doc.txt");
+    });
+  });
+
+  // ─── ingest run ──────────────────────────────────────────────────────────
+
+  describe("ingest run", () => {
+    it("executes the pipeline and prints metrics", async () => {
+      writeFileSync(
+        join(sourceDir, "test.txt"),
+        "This is test content for the ingestion pipeline. It should be processed successfully.",
+      );
+
+      (mockConfig as { ingest: { sources: Array<{ path: string }> } }).ingest.sources = [
+        { path: sourceDir },
+      ];
+
+      const program = new Command();
+      program.exitOverride();
+      const ingest = program.command("ingest");
+      registerIngestRunCommand(ingest);
+
+      const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+
+      await program.parseAsync(["node", "test", "ingest", "run"]);
+
+      const output = logSpy.mock.calls.map((c) => c.join(" ")).join("\n");
+      logSpy.mockRestore();
+
+      expect(output).toContain("Pipeline completed");
+      expect(output).toContain("Files scanned:");
+      expect(output).toContain("Records generated:");
+    });
+  });
+
+  // ─── ingest status ───────────────────────────────────────────────────────
+
+  describe("ingest status", () => {
+    it("shows status after a successful ingest", async () => {
+      // First, run an ingest to populate the registry
+      writeFileSync(
+        join(sourceDir, "status-test.txt"),
+        "Content for the status test command verification.",
+      );
+
+      (mockConfig as { ingest: { sources: Array<{ path: string }> } }).ingest.sources = [
+        { path: sourceDir },
+      ];
+
+      // Run ingest first
+      const runProgram = new Command();
+      runProgram.exitOverride();
+      const runIngest = runProgram.command("ingest");
+      registerIngestRunCommand(runIngest);
+
+      const runLogSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+      await runProgram.parseAsync(["node", "test", "ingest", "run"]);
+      runLogSpy.mockRestore();
+
+      // Now check status
+      const statusProgram = new Command();
+      statusProgram.exitOverride();
+      const statusIngest = statusProgram.command("ingest");
+      registerIngestStatusCommand(statusIngest);
+
+      const statusLogSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+      await statusProgram.parseAsync(["node", "test", "ingest", "status"]);
+
+      const output = statusLogSpy.mock.calls.map((c) => c.join(" ")).join("\n");
+      statusLogSpy.mockRestore();
+
+      expect(output).toContain("Total files:");
+      expect(output).toContain("Successful:");
+      expect(output).toContain("status-test.txt");
+    });
+  });
+
+  // ─── ingest run — edge cases ─────────────────────────────────────────────────
+
+  describe("ingest run edge cases", () => {
+    it("exits with error when no sources are configured", async () => {
+      // mockConfig already has sources: []
+      const program = new Command();
+      program.exitOverride();
+      const ingest = program.command("ingest");
+      registerIngestRunCommand(ingest);
+
+      const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+      const exitSpy = vi.spyOn(process, "exit").mockImplementation((_code) => {
+        throw new Error("process.exit");
+      });
+
+      await expect(
+        program.parseAsync(["node", "test", "ingest", "run"]),
+      ).rejects.toThrow("process.exit");
+
+      const errOutput = errSpy.mock.calls.map((c) => c.join(" ")).join("\n");
+      errSpy.mockRestore();
+      exitSpy.mockRestore();
+
+      expect(errOutput).toContain("No sources configured");
+    });
+
+    it("processes multiple files in a single run", async () => {
+      writeFileSync(join(sourceDir, "file-a.txt"), "Content of file A for testing purposes.");
+      writeFileSync(join(sourceDir, "file-b.txt"), "Content of file B with different content.");
+      writeFileSync(join(sourceDir, "file-c.txt"), "Content of file C, the third file.");
+
+      (mockConfig as { ingest: { sources: Array<{ path: string }> } }).ingest.sources = [
+        { path: sourceDir },
+      ];
+
+      const program = new Command();
+      program.exitOverride();
+      const ingest = program.command("ingest");
+      registerIngestRunCommand(ingest);
+
+      const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+      await program.parseAsync(["node", "test", "ingest", "run"]);
+      const output = logSpy.mock.calls.map((c) => c.join(" ")).join("\n");
+      logSpy.mockRestore();
+
+      // The output format uses padded labels: "Files scanned:     3"
+      expect(output).toContain("Files scanned:");
+      expect(output).toMatch(/Files scanned:\s+3/);
+      expect(output).toMatch(/Files added:\s+3|Added:\s+3/);
+    });
+  });
+
+  // ─── ingest status — edge cases ──────────────────────────────────────────────
+
+  describe("ingest status edge cases", () => {
+    it("shows a helpful message when no ingest has run yet", async () => {
+      // The registry.db does not exist before the first ingest run.
+      const program = new Command();
+      program.exitOverride();
+      const ingest = program.command("ingest");
+      registerIngestStatusCommand(ingest);
+
+      const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+      await program.parseAsync(["node", "test", "ingest", "status"]);
+      const output = logSpy.mock.calls.map((c) => c.join(" ")).join("\n");
+      logSpy.mockRestore();
+
+      // Either "No ingest history found" (no registry.db) or
+      // "No files have been ingested yet" (empty registry) are acceptable.
+      expect(output).toMatch(/No ingest history|No files have been ingested yet/);
+    });
+  });
+
+  // ─── ingest diff — edge cases ────────────────────────────────────────────────
+
+  describe("ingest diff edge cases", () => {
+    it("reports no new files for an empty source directory", async () => {
+      (mockConfig as { ingest: { sources: Array<{ path: string }> } }).ingest.sources = [
+        { path: sourceDir },
+      ];
+
+      const program = new Command();
+      program.exitOverride();
+      const ingest = program.command("ingest");
+      registerIngestDiffCommand(ingest);
+
+      const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+      await program.parseAsync(["node", "test", "ingest", "diff"]);
+      const output = logSpy.mock.calls.map((c) => c.join(" ")).join("\n");
+      logSpy.mockRestore();
+
+      // Empty dir: no files are reported as added
+      expect(output).not.toMatch(/added:.*\S/);
+    });
+
+    it("shows multiple new files as added", async () => {
+      writeFileSync(join(sourceDir, "alpha.txt"), "Alpha content.");
+      writeFileSync(join(sourceDir, "beta.txt"), "Beta content.");
+
+      (mockConfig as { ingest: { sources: Array<{ path: string }> } }).ingest.sources = [
+        { path: sourceDir },
+      ];
+
+      const program = new Command();
+      program.exitOverride();
+      const ingest = program.command("ingest");
+      registerIngestDiffCommand(ingest);
+
+      const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+      await program.parseAsync(["node", "test", "ingest", "diff"]);
+      const output = logSpy.mock.calls.map((c) => c.join(" ")).join("\n");
+      logSpy.mockRestore();
+
+      expect(output).toContain("alpha.txt");
+      expect(output).toContain("beta.txt");
+    });
+  });
+
+  // ─── search ──────────────────────────────────────────────────────────────
+
+  describe("search", () => {
+    it("returns results after ingestion", async () => {
+      // Ingest a file first
+      writeFileSync(
+        join(sourceDir, "searchable.txt"),
+        "The quick brown fox jumps over the lazy dog. This is a classic pangram for testing.",
+      );
+
+      (mockConfig as { ingest: { sources: Array<{ path: string }> } }).ingest.sources = [
+        { path: sourceDir },
+      ];
+
+      // Run ingest
+      const runProgram = new Command();
+      runProgram.exitOverride();
+      const runIngest = runProgram.command("ingest");
+      registerIngestRunCommand(runIngest);
+
+      const runLogSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+      await runProgram.parseAsync(["node", "test", "ingest", "run"]);
+      runLogSpy.mockRestore();
+
+      // Close and reopen the db so search picks up the published data
+      db.close();
+      db = new AkiDB({
+        storagePath: akidbRoot,
+      });
+
+      // Search
+      const searchProgram = new Command();
+      searchProgram.exitOverride();
+      registerSearchCommand(searchProgram);
+
+      const searchLogSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+
+      await searchProgram.parseAsync([
+        "node",
+        "test",
+        "search",
+        "quick brown fox",
+        "--top-k",
+        "5",
+      ]);
+
+      const output = searchLogSpy.mock.calls.map((c) => c.join(" ")).join("\n");
+      searchLogSpy.mockRestore();
+
+      expect(output).toContain("Search results for:");
+      expect(output).toContain("chunk_id:");
+      expect(output).toContain("score:");
+    });
+
+    it("prints message when --answer is used without LLM config", async () => {
+      writeFileSync(
+        join(sourceDir, "answer-test.txt"),
+        "Some content for the answer flag test of the search command.",
+      );
+
+      (mockConfig as { ingest: { sources: Array<{ path: string }> } }).ingest.sources = [
+        { path: sourceDir },
+      ];
+
+      // Run ingest
+      const runProgram = new Command();
+      runProgram.exitOverride();
+      const runIngest = runProgram.command("ingest");
+      registerIngestRunCommand(runIngest);
+
+      const runLogSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+      await runProgram.parseAsync(["node", "test", "ingest", "run"]);
+      runLogSpy.mockRestore();
+
+      db.close();
+      db = new AkiDB({
+        storagePath: akidbRoot,
+      });
+
+      // Search with --answer flag — expects an error + process.exit(1) when no LLM config
+      const searchProgram = new Command();
+      searchProgram.exitOverride();
+      registerSearchCommand(searchProgram);
+
+      const searchErrSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+      const exitSpy = vi.spyOn(process, "exit").mockImplementation((_code) => {
+        throw new Error("process.exit");
+      });
+
+      await expect(
+        searchProgram.parseAsync([
+          "node",
+          "test",
+          "search",
+          "answer flag test",
+          "--answer",
+        ]),
+      ).rejects.toThrow("process.exit");
+
+      const errOutput = searchErrSpy.mock.calls.map((c) => c.join(" ")).join("\n");
+      searchErrSpy.mockRestore();
+      exitSpy.mockRestore();
+
+      expect(errOutput).toContain("--answer requires an `llm` section");
+    });
+
+    it("shows result count in output header", async () => {
+      writeFileSync(
+        join(sourceDir, "count-test.txt"),
+        "Content to count results for the search command header test.",
+      );
+
+      (mockConfig as { ingest: { sources: Array<{ path: string }> } }).ingest.sources = [
+        { path: sourceDir },
+      ];
+
+      // Ingest
+      const runProgram = new Command();
+      runProgram.exitOverride();
+      const runIngest = runProgram.command("ingest");
+      registerIngestRunCommand(runIngest);
+      const runLogSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+      await runProgram.parseAsync(["node", "test", "ingest", "run"]);
+      runLogSpy.mockRestore();
+
+      // Search
+      const searchProgram = new Command();
+      searchProgram.exitOverride();
+      registerSearchCommand(searchProgram);
+
+      const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+      await searchProgram.parseAsync(["node", "test", "search", "count test", "--top-k", "1"]);
+      const output = logSpy.mock.calls.map((c) => c.join(" ")).join("\n");
+      logSpy.mockRestore();
+
+      expect(output).toContain("Results: 1");
+      expect(output).toContain("Manifest version:");
+    });
+
+    it("exits with error for invalid --top-k value", async () => {
+      const searchProgram = new Command();
+      searchProgram.exitOverride();
+      registerSearchCommand(searchProgram);
+
+      const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+      const exitSpy = vi.spyOn(process, "exit").mockImplementation((_code) => {
+        throw new Error("process.exit");
+      });
+
+      await expect(
+        searchProgram.parseAsync(["node", "test", "search", "query", "--top-k", "0"]),
+      ).rejects.toThrow("process.exit");
+
+      const errOutput = errSpy.mock.calls.map((c) => c.join(" ")).join("\n");
+      errSpy.mockRestore();
+      exitSpy.mockRestore();
+
+      expect(errOutput).toContain("top-k");
+    });
+
+    it("exits with error for non-numeric --top-k value", async () => {
+      const searchProgram = new Command();
+      searchProgram.exitOverride();
+      registerSearchCommand(searchProgram);
+
+      const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+      const exitSpy = vi.spyOn(process, "exit").mockImplementation((_code) => {
+        throw new Error("process.exit");
+      });
+
+      await expect(
+        searchProgram.parseAsync(["node", "test", "search", "query", "--top-k", "abc"]),
+      ).rejects.toThrow("process.exit");
+
+      errSpy.mockRestore();
+      exitSpy.mockRestore();
+    });
+  });
+});
