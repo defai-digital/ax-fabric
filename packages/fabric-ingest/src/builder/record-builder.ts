@@ -124,12 +124,15 @@ export class RecordBuilder {
   }
 
   /**
-   * Compute a deterministic document ID from source path and content hash.
-   * `SHA-256(sourcePath + contentHash)` (hex).
+   * Compute a deterministic document ID from the stable source path.
+   * `SHA-256(sourcePath)` (hex).
+   *
+   * The second parameter is retained for call-site compatibility; document
+   * versioning should use the content fingerprint separately.
    */
-  static computeDocId(sourcePath: string, contentHash: string): string {
+  static computeDocId(sourcePath: string, _contentHash: string): string {
     return createHash("sha256")
-      .update(sourcePath + contentHash, "utf8")
+      .update(sourcePath, "utf8")
       .digest("hex");
   }
 

@@ -118,4 +118,76 @@ describe("SemanticStore", () => {
       rmSync(workdir, { recursive: true, force: true });
     }
   });
+
+  it("clears publication state when a previously published bundle is re-reviewed as rejected", async () => {
+    const workdir = mkdtempSync(join(tmpdir(), "semantic-store-reject-"));
+    const dbPath = join(workdir, "semantic.db");
+    const filePath = join(workdir, "guide.txt");
+    writeFileSync(filePath, "Rejected semantic bundles should not remain published in canonical state.", "utf8");
+
+    try {
+      const engine = new SemanticReviewEngine();
+      const bundle = await engine.createBundle(filePath);
+      const approved = engine.approveBundle(bundle, {
+        reviewer: "akira",
+        minQualityScore: 0.1,
+        duplicatePolicy: "warn",
+      });
+      const rejected = engine.approveBundle(bundle, {
+        reviewer: "akira",
+        minQualityScore: 0.99,
+        duplicatePolicy: "reject",
+      });
+
+      const store = new SemanticStore(dbPath);
+      store.upsertBundle(approved);
+      store.markPublished(bundle.bundle_id, {
+        collectionId: "default-semantic",
+        manifestVersion: 2,
+        publishedAt: new Date().toISOString(),
+      });
+
+      store.upsertBundle(rejected);
+
+      const stored = store.getStoredBundle(bundle.bundle_id);
+      expect(stored?.bundle.review?.status).toBe("rejected");
+      expect(stored?.publication).toBeNull();
+      expect(store.listPublishedUnitLookups("default-semantic")).toHaveLength(0);
+      store.close();
+    } finally {
+      rmSync(workdir, { recursive: true, force: true });
+    }
+  });
+
+  it("finds an active published bundle for a doc and collection", async () => {
+    const workdir = mkdtempSync(join(tmpdir(), "semantic-store-published-ref-"));
+    const dbPath = join(workdir, "semantic.db");
+    const filePath = join(workdir, "guide.txt");
+    writeFileSync(filePath, "Published bundle refs should be queryable by doc and collection.", "utf8");
+
+    try {
+      const engine = new SemanticReviewEngine();
+      const bundle = await engine.createBundle(filePath);
+      const approved = engine.approveBundle(bundle, {
+        reviewer: "akira",
+        minQualityScore: 0.1,
+        duplicatePolicy: "warn",
+      });
+
+      const store = new SemanticStore(dbPath);
+      store.upsertBundle(approved);
+      store.markPublished(bundle.bundle_id, {
+        collectionId: "default-semantic",
+        manifestVersion: 1,
+        publishedAt: new Date().toISOString(),
+      });
+
+      const ref = store.findPublishedBundleForDoc(bundle.doc_id, "default-semantic");
+      expect(ref?.bundleId).toBe(bundle.bundle_id);
+      expect(ref?.docId).toBe(bundle.doc_id);
+      store.close();
+    } finally {
+      rmSync(workdir, { recursive: true, force: true });
+    }
+  });
 });

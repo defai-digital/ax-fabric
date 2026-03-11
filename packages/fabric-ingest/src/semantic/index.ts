@@ -16,4 +16,5 @@ export {
   type SemanticPublicationState,
   type StoredSemanticBundle,
   type SemanticUnitLookup,
+  type SemanticPublishedBundleRef,
 } from "./semantic-store.js";

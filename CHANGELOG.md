@@ -12,6 +12,9 @@ Bug-fix patch release.
 - Fixed `req.socket.destroy()` in the orchestrator body-size guard: `IncomingMessage.socket` is typed `Socket | null`; changed to `req.socket?.destroy()` to avoid a `TypeError` when the socket is already gone
 - Fixed `db.close()` in the MCP server shutdown path: the call was unguarded so a throw would leave `close()` rejected and mask the real shutdown; wrapped in `try/catch` so shutdown always completes cleanly
 - Removed dead `getBundleState()` private method from `SemanticStore` (superseded by `getStoredBundle()`)
+- Fixed `SemanticStore` publication-state updates so a previously published bundle that is later re-reviewed as `rejected` no longer retains stale publication metadata or published-unit lookups
+- Fixed semantic publication lifecycle to reject publishing a second active bundle for the same `doc_id` into the same semantic collection until replacement/unpublish behavior is explicitly defined
+- Fixed semantic document identity so `doc_id` remains stable across content revisions of the same source path while `doc_version` continues to track the content fingerprint; this restores correct review/publication lifecycle behavior across re-distills
 
 ### Notes
 

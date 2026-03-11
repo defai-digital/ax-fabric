@@ -287,6 +287,13 @@ export function registerSemanticCommand(program: Command): void {
         }
 
         const collectionId = opts.collection ?? `${config.akidb.collection}${config.retrieval.semantic_collection_suffix}`;
+        const existingPublication = store.findPublishedBundleForDoc(bundle.doc_id, collectionId);
+        if (existingPublication && existingPublication.bundleId !== bundle.bundle_id) {
+          throw new Error(
+            `Semantic collection "${collectionId}" already has an active published bundle for doc_id "${bundle.doc_id}" `
+            + `(${existingPublication.bundleId}). Publish into a different collection or replace the existing publication first.`,
+          );
+        }
         ensureCollection(db, config, collectionId);
         const records = await buildSemanticRecords(bundle, config, embedder);
         await db.upsertBatch(collectionId, records);

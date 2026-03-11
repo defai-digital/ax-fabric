@@ -36,6 +36,12 @@ export interface SemanticUnitLookup {
   collectionId: string | null;
 }
 
+export interface SemanticPublishedBundleRef {
+  bundleId: string;
+  docId: string;
+  collectionId: string;
+}
+
 export class SemanticStore {
   private readonly db: DatabaseSync;
 
@@ -57,6 +63,7 @@ export class SemanticStore {
       })
       : parsed;
     const review = merged.review;
+    const retainPublication = review?.status === "approved";
 
     this.db.exec("BEGIN IMMEDIATE;");
     try {
@@ -104,9 +111,9 @@ export class SemanticStore {
           average_quality_score = excluded.average_quality_score,
           duplicate_group_count = excluded.duplicate_group_count,
           bundle_json = excluded.bundle_json,
-          published_collection_id = COALESCE(semantic_bundles.published_collection_id, excluded.published_collection_id),
-          published_manifest_version = COALESCE(semantic_bundles.published_manifest_version, excluded.published_manifest_version),
-          published_at = COALESCE(semantic_bundles.published_at, excluded.published_at)
+          published_collection_id = excluded.published_collection_id,
+          published_manifest_version = excluded.published_manifest_version,
+          published_at = excluded.published_at
       `).run(
         merged.bundle_id,
         merged.source_path,
@@ -126,9 +133,9 @@ export class SemanticStore {
         merged.diagnostics.average_quality_score,
         merged.diagnostics.duplicate_groups.length,
         JSON.stringify(merged),
-        existing?.publication?.collectionId ?? null,
-        existing?.publication?.manifestVersion ?? null,
-        existing?.publication?.publishedAt ?? null,
+        retainPublication ? (existing?.publication?.collectionId ?? null) : null,
+        retainPublication ? (existing?.publication?.manifestVersion ?? null) : null,
+        retainPublication ? (existing?.publication?.publishedAt ?? null) : null,
       );
 
       this.db.prepare("DELETE FROM semantic_units WHERE bundle_id = ?").run(merged.bundle_id);
@@ -312,6 +319,30 @@ export class SemanticStore {
       contentType: String(row["content_type"]),
       dedupeKey: String(row["chunk_id"]),
       collectionId: row["published_collection_id"] === null ? null : String(row["published_collection_id"]),
+    };
+  }
+
+  findPublishedBundleForDoc(docId: string, collectionId: string): SemanticPublishedBundleRef | null {
+    const row = this.db.prepare(`
+      SELECT
+        bundle_id,
+        doc_id,
+        published_collection_id
+      FROM semantic_bundles
+      WHERE doc_id = ?
+        AND published_collection_id = ?
+      ORDER BY published_at DESC, bundle_id DESC
+      LIMIT 1
+    `).get(docId, collectionId) as Record<string, unknown> | undefined;
+
+    if (!row) {
+      return null;
+    }
+
+    return {
+      bundleId: String(row["bundle_id"]),
+      docId: String(row["doc_id"]),
+      collectionId: String(row["published_collection_id"]),
     };
   }
 

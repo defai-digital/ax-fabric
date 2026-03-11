@@ -6,6 +6,7 @@ import { tmpdir } from "node:os";
 import { AkiDB } from "@ax-fabric/akidb";
 
 import { registerSemanticCommand } from "./semantic.js";
+import { SemanticStore } from "../semantic/index.js";
 
 let mockConfigPath = "";
 let mockConfig: Record<string, unknown> = {};
@@ -254,6 +255,63 @@ describe("semantic CLI", () => {
     } finally {
       db.close();
       logSpy.mockRestore();
+      rmSync(workdir, { recursive: true, force: true });
+    }
+  });
+
+  it("refuses to publish a second active bundle for the same doc into the same collection", async () => {
+    const workdir = mkdtempSync(join(tmpdir(), "semantic-cli-republish-"));
+    const filePath = join(workdir, "guide.txt");
+    const dataRoot = join(workdir, "data");
+    writeFileSync(
+      filePath,
+      "Semantic publication should block a second active publication for the same doc and collection.",
+      "utf8",
+    );
+    mockConfig = {
+      ...mockConfig,
+      fabric: { data_root: dataRoot, max_storage_gb: 50 },
+      akidb: { root: join(dataRoot, "akidb"), collection: "test-col", metric: "cosine", dimension: 128 },
+    };
+
+    const program = makeProgram();
+
+    try {
+      await program.parseAsync(["node", "test", "semantic", "store", filePath]);
+      const store = new SemanticStore(join(dataRoot, "semantic.db"));
+      const firstBundleId = store.listBundles()[0]!.bundleId;
+      store.close();
+
+      await program.parseAsync([
+        "node", "test", "semantic", "approve-store", firstBundleId,
+        "--reviewer", "akira",
+        "--min-quality", "0.5",
+        "--duplicate-policy", "warn",
+      ]);
+      await program.parseAsync(["node", "test", "semantic", "publish", firstBundleId]);
+
+      writeFileSync(
+        filePath,
+        "Semantic publication should block a second active publication for the same doc after source changes.",
+        "utf8",
+      );
+
+      await program.parseAsync(["node", "test", "semantic", "store", filePath]);
+      const verifyStore = new SemanticStore(join(dataRoot, "semantic.db"));
+      const secondBundleId = verifyStore.listBundles()[0]!.bundleId;
+      verifyStore.close();
+
+      await program.parseAsync([
+        "node", "test", "semantic", "approve-store", secondBundleId,
+        "--reviewer", "akira",
+        "--min-quality", "0.5",
+        "--duplicate-policy", "warn",
+      ]);
+
+      await expect(
+        program.parseAsync(["node", "test", "semantic", "publish", secondBundleId]),
+      ).rejects.toThrow(/already has an active published bundle/);
+    } finally {
       rmSync(workdir, { recursive: true, force: true });
     }
   });

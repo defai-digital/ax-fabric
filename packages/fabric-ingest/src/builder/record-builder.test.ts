@@ -214,11 +214,15 @@ describe("RecordBuilder.computeDocId", () => {
     expect(id1).toBe(id2);
   });
 
-  it("differs when path or hash differs", () => {
+  it("differs when path differs", () => {
     const id1 = RecordBuilder.computeDocId("/a/b.txt", "hash1");
     const id2 = RecordBuilder.computeDocId("/a/c.txt", "hash1");
-    const id3 = RecordBuilder.computeDocId("/a/b.txt", "hash2");
     expect(id1).not.toBe(id2);
-    expect(id1).not.toBe(id3);
+  });
+
+  it("stays stable when only content hash changes", () => {
+    const id1 = RecordBuilder.computeDocId("/a/b.txt", "hash1");
+    const id2 = RecordBuilder.computeDocId("/a/b.txt", "hash2");
+    expect(id1).toBe(id2);
   });
 });

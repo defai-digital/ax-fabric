@@ -174,6 +174,14 @@ describe("stageChunk", () => {
     expect(result!.docVersion).toBe(file.fingerprint);
   });
 
+  it("keeps docId stable when only the file fingerprint changes", () => {
+    const normalized = { normalizedText: "Sample document text here." };
+    const first = stageChunk(normalized, makeScanResult({ sourcePath: "/docs/file.txt", fingerprint: "fp-1" }));
+    const second = stageChunk(normalized, makeScanResult({ sourcePath: "/docs/file.txt", fingerprint: "fp-2" }));
+    expect(first!.docId).toBe(second!.docId);
+    expect(first!.docVersion).not.toBe(second!.docVersion);
+  });
+
   it("chunks have chunkId, chunkHash, text, and offset", () => {
     const normalized = { normalizedText: "Sample document text here." };
     const result = stageChunk(normalized, file);
