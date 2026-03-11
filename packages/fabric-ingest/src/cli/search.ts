@@ -26,10 +26,19 @@ function expandTilde(p: string): string {
 export function registerSearchCommand(program: Command): void {
   program
     .command("search <query>")
-    .description("Search for documents by semantic similarity")
+    .description("Search for documents with vector, keyword, or hybrid retrieval")
     .option("-k, --top-k <number>", "Number of results to return", "10")
+    .option("--mode <mode>", "Search mode: vector | keyword | hybrid", "vector")
+    .option("--explain", "Include per-result scoring breakdown and chunk previews")
+    .option("--json", "Print machine-readable JSON output for evaluation workflows")
     .option("--answer", "Generate an answer from retrieved chunks (requires LLM config)")
-    .action(async (query: string, opts: { topK: string; answer?: boolean }) => {
+    .action(async (query: string, opts: {
+      topK: string;
+      mode?: string;
+      explain?: boolean;
+      json?: boolean;
+      answer?: boolean;
+    }) => {
       try {
       const configPath = resolveConfigPath();
       const config = loadConfig(configPath);
@@ -41,6 +50,12 @@ export function registerSearchCommand(program: Command): void {
         process.exit(1);
       }
 
+      const mode = opts.mode ?? "vector";
+      if (mode !== "vector" && mode !== "keyword" && mode !== "hybrid") {
+        console.error("Error: --mode must be one of: vector, keyword, hybrid");
+        process.exit(1);
+      }
+
       // Create embedder and AkiDB — both need cleanup in finally
       const embedder = createEmbedderFromConfig(config);
       let llm: LlmProvider | null = null;
@@ -48,20 +63,25 @@ export function registerSearchCommand(program: Command): void {
       const db = new AkiDB({ storagePath: akidbRoot });
 
       // When --answer is requested, enable explain to get chunk previews for RAG
-      const needExplain = opts.answer === true;
+      const needExplain = opts.answer === true || opts.explain === true;
 
       try {
-        const vectors = await embedder.embed([query]);
-        const vec0 = vectors[0];
-        if (!vec0 || vec0.length === 0) {
-          throw new Error("Embedder returned no vector for query");
+        let queryVector = new Float32Array(0);
+        if (mode === "vector" || mode === "hybrid") {
+          const vectors = await embedder.embed([query]);
+          const vec0 = vectors[0];
+          if (!vec0 || vec0.length === 0) {
+            throw new Error("Embedder returned no vector for query");
+          }
+          queryVector = new Float32Array(vec0);
         }
-        const queryVector = new Float32Array(vec0);
 
         const searchResult = await db.search({
           collectionId: config.akidb.collection,
           queryVector,
           topK,
+          mode,
+          queryText: mode === "keyword" || mode === "hybrid" ? query : undefined,
           explain: needExplain,
         });
 
@@ -82,21 +102,71 @@ export function registerSearchCommand(program: Command): void {
           console.warn(`Warning: could not load registry (source paths will be missing): ${err instanceof Error ? err.message : String(err)}`);
         }
 
-        console.log(`\nSearch results for: "${query}"\n`);
-        console.log(`  Manifest version: ${String(searchResult.manifestVersionUsed)}`);
-        console.log(`  Results: ${String(searchResult.results.length)}\n`);
-
-        for (let i = 0; i < searchResult.results.length; i++) {
-          const result = searchResult.results[i]!;
+        const renderedResults = searchResult.results.map((result) => {
           const meta = filesByChunkId?.get(result.chunkId);
-          const rank = String(i + 1).padStart(2, " ");
-          console.log(`  ${rank}. chunk_id: ${result.chunkId}`);
-          console.log(`      score:    ${result.score.toFixed(6)}`);
-          if (meta) {
-            console.log(`      source:   ${meta.sourcePath}`);
-            console.log(`      type:     ${meta.contentType}`);
+          return {
+            chunkId: result.chunkId,
+            score: result.score,
+            sourcePath: meta?.sourcePath ?? null,
+            contentType: meta?.contentType ?? null,
+            explain: result.explain ?? null,
+          };
+        });
+
+        if (opts.json) {
+          console.log(JSON.stringify({
+            query,
+            mode,
+            topK,
+            manifestVersion: searchResult.manifestVersionUsed,
+            results: renderedResults,
+          }, null, 2));
+        } else {
+          console.log(`\nSearch results for: "${query}"\n`);
+          console.log(`  Mode:             ${mode}`);
+          console.log(`  Manifest version: ${String(searchResult.manifestVersionUsed)}`);
+          console.log(`  Results:          ${String(searchResult.results.length)}\n`);
+
+          for (let i = 0; i < renderedResults.length; i++) {
+            const result = renderedResults[i]!;
+            const rank = String(i + 1).padStart(2, " ");
+            console.log(`  ${rank}. chunk_id: ${result.chunkId}`);
+            console.log(`      score:    ${result.score.toFixed(6)}`);
+            if (result.sourcePath) {
+              console.log(`      source:   ${result.sourcePath}`);
+            }
+            if (result.contentType) {
+              console.log(`      type:     ${result.contentType}`);
+            }
+            if (result.explain) {
+              console.log("      explain:");
+              if (result.explain.vectorScore !== undefined) {
+                console.log(`        vector_score: ${result.explain.vectorScore.toFixed(6)}`);
+              }
+              if (result.explain.bm25Score !== undefined) {
+                console.log(`        bm25_score:   ${result.explain.bm25Score.toFixed(6)}`);
+              }
+              if (result.explain.rrfScore !== undefined) {
+                console.log(`        rrf_score:    ${result.explain.rrfScore.toFixed(6)}`);
+              }
+              if (result.explain.vectorRank !== undefined) {
+                console.log(`        vector_rank:  ${String(result.explain.vectorRank)}`);
+              }
+              if (result.explain.bm25Rank !== undefined) {
+                console.log(`        bm25_rank:    ${String(result.explain.bm25Rank)}`);
+              }
+              if (result.explain.matchedTerms.length > 0) {
+                console.log(`        matched:      ${result.explain.matchedTerms.join(", ")}`);
+              }
+              if (result.explain.chunkPreview?.trim()) {
+                console.log("        chunk preview:");
+                for (const line of trimPreview(result.explain.chunkPreview).split("\n")) {
+                  console.log(`          ${line}`);
+                }
+              }
+            }
+            console.log();
           }
-          console.log();
         }
 
         registry?.close();
@@ -161,6 +231,14 @@ export function registerSearchCommand(program: Command): void {
         process.exit(1);
       }
     });
+}
+
+function trimPreview(text: string, maxChars = 220): string {
+  const trimmed = text.trim();
+  if (trimmed.length <= maxChars) {
+    return trimmed;
+  }
+  return `${trimmed.slice(0, maxChars - 3)}...`;
 }
 
 /**

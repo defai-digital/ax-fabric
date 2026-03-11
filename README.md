@@ -90,7 +90,7 @@ This is the intended product stack:
 - users operate it through **ax-cli** or **ax-studio**,
 - AX Fabric can call **ax-serving** when local serving infrastructure is needed.
 
-For the recommended `v1.2.x` product-family architecture and evaluation path, see [STACK.md](./STACK.md). For `v1.3` local-stack operability guidance, see [OPERATIONS.md](./OPERATIONS.md).
+For the recommended `v1.2.x` product-family architecture and evaluation path, see [STACK.md](./STACK.md). For `v1.3` local-stack operability guidance, see [OPERATIONS.md](./OPERATIONS.md). For `v1.4` retrieval-quality workflows, see [SEARCH_QUALITY.md](./SEARCH_QUALITY.md).
 
 ---
 
@@ -308,6 +308,7 @@ Claude Desktop config:
 - `ax-fabric ingest add <path>` / `diff` / `run` / `status`
 - `ax-fabric ingest daemon start` / `status` / `stop`
 - `ax-fabric search <query> [--mode vector|keyword|hybrid] [--top-k N]`
+- `ax-fabric eval <fixture.json> [--json]`
 - `ax-fabric mcp server` / `token show` / `token generate`
 - `ax-fabric orchestrator start`
 - `ax-fabric doctor [--check-serving]`

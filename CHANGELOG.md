@@ -1,5 +1,22 @@
 # Changelog
 
+## v1.4.0
+
+Retrieval quality and explainability release.
+
+### Highlights
+
+- Fixed `ax-fabric search` to support documented `--mode vector|keyword|hybrid` behavior
+- Added `--explain` and `--json` to the search CLI for explainable and machine-readable retrieval output
+- Added `ax-fabric eval` for fixture-based comparison across vector, keyword, and hybrid retrieval
+- Fixed `EmbeddingScheduler.close()` so queued embedding work is rejected cleanly during shutdown instead of hanging
+- Added `SEARCH_QUALITY.md` to document the `v1.4` evaluation workflow
+
+### Notes
+
+- Use `ax-fabric search --mode hybrid --explain --json` for per-query analysis
+- Use `ax-fabric eval <fixture.json>` for repeatable Hit@K-style mode comparison
+
 ## v1.3.0
 
 Enterprise offline stack operability release.

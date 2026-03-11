@@ -343,3 +343,25 @@ describe("EmbeddingScheduler — metrics", () => {
     expect(m.errorsEncountered).toBe(1);
   });
 });
+
+// ─── Shutdown semantics ──────────────────────────────────────────────────────
+
+describe("EmbeddingScheduler — shutdown", () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("rejects queued work when closed before a flush fires", async () => {
+    const embedder = makeEmbedder(async (texts) => texts.map(() => [1, 0, 0, 0]));
+    const scheduler = makeScheduler(embedder, { batchSize: 10, maxQueueAgeMs: 500 });
+
+    const promise = scheduler.embed(["a", "b", "c"]);
+    await scheduler.close();
+
+    await expect(promise).rejects.toThrow("EmbeddingScheduler closed");
+    expect(embedder.calls).toHaveLength(0);
+  });
+});

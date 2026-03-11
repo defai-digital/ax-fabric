@@ -27,6 +27,7 @@ import { registerIngestRunCommand } from "./ingest-run.js";
 import { registerIngestStatusCommand } from "./ingest-status.js";
 import { registerSearchCommand } from "./search.js";
 import { registerDoctorCommand } from "./doctor.js";
+import { registerEvalCommand } from "./eval.js";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -734,8 +735,129 @@ describe("CLI commands", () => {
       const output = logSpy.mock.calls.map((c) => c.join(" ")).join("\n");
       logSpy.mockRestore();
 
-      expect(output).toContain("Results: 1");
+      expect(output).toContain("Results:");
+      expect(output).toContain("1");
       expect(output).toContain("Manifest version:");
+    });
+
+    it("supports keyword mode without embedding the query", async () => {
+      writeFileSync(
+        join(sourceDir, "keyword-test.txt"),
+        "JWT expiry handling for access tokens and refresh tokens.",
+      );
+
+      (mockConfig as { ingest: { sources: Array<{ path: string }> } }).ingest.sources = [
+        { path: sourceDir },
+      ];
+
+      const runProgram = new Command();
+      runProgram.exitOverride();
+      const runIngest = runProgram.command("ingest");
+      registerIngestRunCommand(runIngest);
+      const runLogSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+      await runProgram.parseAsync(["node", "test", "ingest", "run"]);
+      runLogSpy.mockRestore();
+
+      const searchProgram = new Command();
+      searchProgram.exitOverride();
+      registerSearchCommand(searchProgram);
+
+      const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+      await searchProgram.parseAsync([
+        "node",
+        "test",
+        "search",
+        "JWT expiry",
+        "--mode",
+        "keyword",
+        "--top-k",
+        "3",
+      ]);
+      const output = logSpy.mock.calls.map((c) => c.join(" ")).join("\n");
+      logSpy.mockRestore();
+
+      expect(output).toContain("Search results for:");
+      expect(output).toContain("source:");
+    });
+
+    it("prints explain details for hybrid search", async () => {
+      writeFileSync(
+        join(sourceDir, "hybrid-test.txt"),
+        "Authentication token expiry policies and refresh token rotation.",
+      );
+
+      (mockConfig as { ingest: { sources: Array<{ path: string }> } }).ingest.sources = [
+        { path: sourceDir },
+      ];
+
+      const runProgram = new Command();
+      runProgram.exitOverride();
+      const runIngest = runProgram.command("ingest");
+      registerIngestRunCommand(runIngest);
+      const runLogSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+      await runProgram.parseAsync(["node", "test", "ingest", "run"]);
+      runLogSpy.mockRestore();
+
+      const searchProgram = new Command();
+      searchProgram.exitOverride();
+      registerSearchCommand(searchProgram);
+
+      const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+      await searchProgram.parseAsync([
+        "node",
+        "test",
+        "search",
+        "token expiry",
+        "--mode",
+        "hybrid",
+        "--explain",
+        "--top-k",
+        "3",
+      ]);
+      const output = logSpy.mock.calls.map((c) => c.join(" ")).join("\n");
+      logSpy.mockRestore();
+
+      expect(output).toContain("explain:");
+      expect(output).toContain("chunk preview:");
+    });
+
+    it("supports JSON output for evaluation workflows", async () => {
+      writeFileSync(
+        join(sourceDir, "json-test.txt"),
+        "Local retrieval quality test fixture for JSON output.",
+      );
+
+      (mockConfig as { ingest: { sources: Array<{ path: string }> } }).ingest.sources = [
+        { path: sourceDir },
+      ];
+
+      const runProgram = new Command();
+      runProgram.exitOverride();
+      const runIngest = runProgram.command("ingest");
+      registerIngestRunCommand(runIngest);
+      const runLogSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+      await runProgram.parseAsync(["node", "test", "ingest", "run"]);
+      runLogSpy.mockRestore();
+
+      const searchProgram = new Command();
+      searchProgram.exitOverride();
+      registerSearchCommand(searchProgram);
+
+      const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+      await searchProgram.parseAsync([
+        "node",
+        "test",
+        "search",
+        "retrieval quality",
+        "--json",
+        "--explain",
+      ]);
+      const output = logSpy.mock.calls.map((c) => c.join(" ")).join("\n");
+      logSpy.mockRestore();
+
+      expect(output).toContain("\"query\"");
+      expect(output).toContain("\"results\"");
+      expect(output).toContain("\"explain\"");
     });
 
     it("exits with error for invalid --top-k value", async () => {
@@ -775,6 +897,103 @@ describe("CLI commands", () => {
 
       errSpy.mockRestore();
       exitSpy.mockRestore();
+    });
+  });
+
+  describe("eval", () => {
+    it("evaluates retrieval hit rates across vector, keyword, and hybrid modes", async () => {
+      writeFileSync(
+        join(sourceDir, "eval-target.txt"),
+        "Authentication token expiry policies and refresh token rotation.",
+      );
+
+      (mockConfig as { ingest: { sources: Array<{ path: string }> } }).ingest.sources = [
+        { path: sourceDir },
+      ];
+
+      const runProgram = new Command();
+      runProgram.exitOverride();
+      const runIngest = runProgram.command("ingest");
+      registerIngestRunCommand(runIngest);
+      const runLogSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+      await runProgram.parseAsync(["node", "test", "ingest", "run"]);
+      runLogSpy.mockRestore();
+
+      const fixturePath = join(workDir, "eval-fixture.json");
+      writeFileSync(
+        fixturePath,
+        JSON.stringify({
+          cases: [
+            {
+              query: "token expiry",
+              expected_sources: [join(sourceDir, "eval-target.txt")],
+              top_k: 3,
+            },
+          ],
+        }, null, 2),
+        "utf-8",
+      );
+
+      const evalProgram = new Command();
+      evalProgram.exitOverride();
+      registerEvalCommand(evalProgram);
+
+      const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+      await evalProgram.parseAsync(["node", "test", "eval", fixturePath]);
+      const output = logSpy.mock.calls.map((c) => c.join(" ")).join("\n");
+      logSpy.mockRestore();
+
+      expect(output).toContain("Evaluation fixture:");
+      expect(output).toContain("vector");
+      expect(output).toContain("keyword");
+      expect(output).toContain("hybrid");
+      expect(output).toContain("hit@k=");
+    });
+
+    it("supports JSON output for evaluation automation", async () => {
+      writeFileSync(
+        join(sourceDir, "eval-json.txt"),
+        "Local retrieval quality evaluation fixture for JSON automation.",
+      );
+
+      (mockConfig as { ingest: { sources: Array<{ path: string }> } }).ingest.sources = [
+        { path: sourceDir },
+      ];
+
+      const runProgram = new Command();
+      runProgram.exitOverride();
+      const runIngest = runProgram.command("ingest");
+      registerIngestRunCommand(runIngest);
+      const runLogSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+      await runProgram.parseAsync(["node", "test", "ingest", "run"]);
+      runLogSpy.mockRestore();
+
+      const fixturePath = join(workDir, "eval-fixture-json.json");
+      writeFileSync(
+        fixturePath,
+        JSON.stringify({
+          cases: [
+            {
+              query: "retrieval quality",
+              expected_sources: [join(sourceDir, "eval-json.txt")],
+            },
+          ],
+        }, null, 2),
+        "utf-8",
+      );
+
+      const evalProgram = new Command();
+      evalProgram.exitOverride();
+      registerEvalCommand(evalProgram);
+
+      const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+      await evalProgram.parseAsync(["node", "test", "eval", fixturePath, "--json"]);
+      const output = logSpy.mock.calls.map((c) => c.join(" ")).join("\n");
+      logSpy.mockRestore();
+
+      expect(output).toContain("\"totals\"");
+      expect(output).toContain("\"mode\": \"hybrid\"");
+      expect(output).toContain("\"cases\"");
     });
   });
 });

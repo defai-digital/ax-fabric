@@ -12,6 +12,7 @@ import { registerIngestDiffCommand } from "./cli/ingest-diff.js";
 import { registerIngestRunCommand } from "./cli/ingest-run.js";
 import { registerIngestStatusCommand } from "./cli/ingest-status.js";
 import { registerSearchCommand } from "./cli/search.js";
+import { registerEvalCommand } from "./cli/eval.js";
 import { registerMcpCommand } from "./cli/mcp.js";
 import { registerOrchestratorCommand } from "./cli/orchestrator.js";
 import { registerDaemonCommand } from "./cli/daemon.js";
@@ -36,6 +37,7 @@ registerIngestRunCommand(ingest);
 registerIngestStatusCommand(ingest);
 
 registerSearchCommand(program);
+registerEvalCommand(program);
 registerMcpCommand(program);
 registerOrchestratorCommand(program);
 registerDaemonCommand(program);

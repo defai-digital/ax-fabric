@@ -205,6 +205,23 @@ export class EmbeddingScheduler implements EmbedderProvider {
   /** Cancel any pending flush timer. Call when the pipeline is closing. */
   close(): Promise<void> {
     this.cancelTimer();
+    const err = new AxFabricError(
+      "EMBED_ERROR",
+      "EmbeddingScheduler closed before queued embeddings were processed",
+    );
+
+    while (this.queue.length > 0) {
+      this.queue.shift();
+    }
+
+    for (const [ticketId, ticket] of this.tickets.entries()) {
+      if (!ticket.rejected) {
+        ticket.rejected = true;
+        ticket.reject(err);
+      }
+      this.tickets.delete(ticketId);
+    }
+
     return Promise.resolve();
   }
 

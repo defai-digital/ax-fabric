@@ -10,6 +10,7 @@ Before you begin, keep the product roles clear:
 
 For the overall product-family architecture, see [STACK.md](./STACK.md).
 For local-stack operating guidance, see [OPERATIONS.md](./OPERATIONS.md).
+For retrieval-quality and explainability workflows, see [SEARCH_QUALITY.md](./SEARCH_QUALITY.md).
 
 ## Prerequisites
 
@@ -285,6 +286,19 @@ Hybrid over-fetches `topK × 2` from each source before fusion. It typically giv
 
 ```bash
 pnpm exec ax-fabric search "query" --mode hybrid --explain
+```
+
+Use `--json` when you want to capture search results for repeatable evaluation:
+
+```bash
+pnpm exec ax-fabric search "query" --mode hybrid --explain --json
+```
+
+For fixture-based mode comparison:
+
+```bash
+pnpm exec ax-fabric eval ./eval-fixture.json
+pnpm exec ax-fabric eval ./eval-fixture.json --json
 ```
 
 ---
