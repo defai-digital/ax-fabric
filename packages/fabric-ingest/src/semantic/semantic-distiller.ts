@@ -186,9 +186,10 @@ function contentTypeForExtension(
 ): RecordMetadata["content_type"] | null {
   switch (ext) {
     case ".txt":
+      return "txt";
     case ".md":
     case ".markdown":
-      return "txt";
+      return "md";
     case ".pdf":
       return "pdf";
     case ".docx":
