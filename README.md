@@ -2,7 +2,6 @@
 
 Enterprise offline knowledge fabric for grounded AI systems.
 
-[![CI](https://github.com/defai-digital/ax-fabric/actions/workflows/ci.yml/badge.svg)](https://github.com/defai-digital/ax-fabric/actions/workflows/ci.yml)
 [![Node.js >=22](https://img.shields.io/badge/node-%3E%3D22-brightgreen)](https://nodejs.org)
 [![Rust](https://img.shields.io/badge/rust-stable-orange)](https://www.rust-lang.org)
 [![pnpm](https://img.shields.io/badge/pnpm-10.22-blueviolet)](https://pnpm.io)
