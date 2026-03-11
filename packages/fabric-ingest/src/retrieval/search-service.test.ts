@@ -81,6 +81,7 @@ describe("search-service", () => {
 
       expect(result.layer).toBe("raw");
       expect(result.collectionId).toBe("docs");
+      expect(result.results[0]!.matchedLayers).toEqual(["raw"]);
     } finally {
       db.close();
       rmSync(workdir, { recursive: true, force: true });
@@ -194,6 +195,9 @@ describe("search-service", () => {
       expect(result.layer).toBe("fused");
       expect(result.results).toHaveLength(1);
       expect(result.results[0]!.collection).toBe("raw+semantic");
+      expect(result.results[0]!.matchedLayers).toEqual(["raw", "semantic"]);
+      expect(result.results[0]!.semanticQualityScore).toBeGreaterThan(0);
+      expect(result.results[0]!.semanticTitle).toBeTruthy();
       store.close();
     } finally {
       db.close();

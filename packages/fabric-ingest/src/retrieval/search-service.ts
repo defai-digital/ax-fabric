@@ -11,6 +11,8 @@ export interface SearchResultMetadata {
   sourcePath: string;
   contentType: string;
   dedupeKey: string;
+  title?: string;
+  semanticQualityScore?: number;
 }
 
 export interface RenderedSearchResult {
@@ -20,6 +22,10 @@ export interface RenderedSearchResult {
   contentType: string | null;
   explain: ExplainInfo | null | undefined;
   collection?: string;
+  matchedLayers: Array<"raw" | "semantic">;
+  provenanceChunkId: string;
+  semanticTitle?: string;
+  semanticQualityScore?: number;
 }
 
 export interface SearchExecutionResult {
@@ -166,6 +172,9 @@ function executeFusedSearch(args: {
       rrfScore: number;
       collection: string;
       originalResult: AkiSearchResult;
+      matchedLayers: Array<"raw" | "semantic">;
+      rawChunkId?: string;
+      semanticChunkId?: string;
     };
 
     const byDedupeKey = new Map<string, ScoredEntry>();
@@ -180,12 +189,23 @@ function executeFusedSearch(args: {
           if (existing.collection !== collection) {
             existing.collection = "raw+semantic";
           }
+          if (!existing.matchedLayers.includes(collection as "raw" | "semantic")) {
+            existing.matchedLayers.push(collection as "raw" | "semantic");
+          }
+          if (collection === "raw") {
+            existing.rawChunkId = result.chunkId;
+          } else {
+            existing.semanticChunkId = result.chunkId;
+          }
         } else {
           byDedupeKey.set(dedupeKey, {
             chunkId: result.chunkId,
             rrfScore: rrfContrib,
             collection,
             originalResult: result,
+            matchedLayers: [collection as "raw" | "semantic"],
+            rawChunkId: collection === "raw" ? result.chunkId : undefined,
+            semanticChunkId: collection === "semantic" ? result.chunkId : undefined,
           });
         }
       });
@@ -204,7 +224,16 @@ function executeFusedSearch(args: {
       manifestVersion: rawResult.manifestVersionUsed,
       results: fused.map((entry) => {
         const rendered = renderResult(entry.originalResult, metadata);
-        return { ...rendered, score: entry.rrfScore, collection: entry.collection };
+        return {
+          ...rendered,
+          score: entry.rrfScore,
+          collection: entry.collection,
+          matchedLayers: entry.matchedLayers,
+          provenanceChunkId: metadata.get(entry.semanticChunkId ?? entry.rawChunkId ?? entry.chunkId)?.dedupeKey ?? rendered.provenanceChunkId,
+          semanticTitle: metadata.get(entry.semanticChunkId ?? "")?.title ?? rendered.semanticTitle,
+          semanticQualityScore: metadata.get(entry.semanticChunkId ?? "")?.semanticQualityScore ?? rendered.semanticQualityScore,
+          explain: mergeExplainInfo(entry, metadata),
+        };
       }),
     };
   })();
@@ -221,6 +250,10 @@ function renderResult(
     sourcePath: meta?.sourcePath ?? null,
     contentType: meta?.contentType ?? null,
     explain: result.explain ?? null,
+    matchedLayers: result.chunkId.startsWith("semantic:") ? ["semantic"] : ["raw"],
+    provenanceChunkId: meta?.dedupeKey ?? result.chunkId,
+    semanticTitle: meta?.title,
+    semanticQualityScore: meta?.semanticQualityScore,
   };
 }
 
@@ -361,7 +394,36 @@ function setSemanticLookup(
     sourcePath: lookup.sourcePath,
     contentType: lookup.contentType,
     dedupeKey: lookup.dedupeKey,
+    title: lookup.title,
+    semanticQualityScore: lookup.qualityScore,
   });
+}
+
+function mergeExplainInfo(
+  entry: {
+    originalResult: AkiSearchResult;
+    rrfScore: number;
+    matchedLayers: Array<"raw" | "semantic">;
+    chunkId: string;
+    semanticChunkId?: string;
+  },
+  metadata: Map<string, SearchResultMetadata>,
+): ExplainInfo | null | undefined {
+  const base = entry.originalResult.explain ? { ...entry.originalResult.explain } : undefined;
+  if (!base) {
+    return base;
+  }
+  base.rrfScore = entry.rrfScore;
+  const meta = metadata.get(entry.semanticChunkId ?? entry.chunkId);
+  const previewExtras = [
+    entry.matchedLayers.length > 1 ? `matched_layers=${entry.matchedLayers.join("+")}` : null,
+    meta?.semanticQualityScore !== undefined ? `semantic_quality=${meta.semanticQualityScore.toFixed(2)}` : null,
+    meta?.title ? `semantic_title=${meta.title}` : null,
+  ].filter((value): value is string => value !== null);
+  if (previewExtras.length > 0) {
+    base.matchedTerms = Array.from(new Set([...(base.matchedTerms ?? []), ...previewExtras]));
+  }
+  return base;
 }
 
 function guessContentType(sourcePath: string): string {

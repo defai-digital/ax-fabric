@@ -36,6 +36,8 @@ export interface SemanticUnitLookup {
   contentType: string;
   dedupeKey: string;
   collectionId: string | null;
+  title: string;
+  qualityScore: number;
 }
 
 export interface SemanticPublishedBundleRef {
@@ -268,6 +270,8 @@ export class SemanticStore {
       SELECT
         b.published_collection_id,
         u.unit_id,
+        u.title,
+        u.quality_score,
         s.source_uri,
         s.content_type,
         s.chunk_id
@@ -288,6 +292,8 @@ export class SemanticStore {
       contentType: String(row["content_type"]),
       dedupeKey: String(row["chunk_id"]),
       collectionId: row["published_collection_id"] === null ? null : String(row["published_collection_id"]),
+      title: String(row["title"]),
+      qualityScore: Number(row["quality_score"]),
     }));
   }
 
@@ -297,6 +303,8 @@ export class SemanticStore {
       SELECT
         b.published_collection_id,
         u.unit_id,
+        u.title,
+        u.quality_score,
         s.source_uri,
         s.content_type,
         s.chunk_id
@@ -321,6 +329,8 @@ export class SemanticStore {
       contentType: String(row["content_type"]),
       dedupeKey: String(row["chunk_id"]),
       collectionId: row["published_collection_id"] === null ? null : String(row["published_collection_id"]),
+      title: String(row["title"]),
+      qualityScore: Number(row["quality_score"]),
     };
   }
 

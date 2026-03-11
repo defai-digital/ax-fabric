@@ -159,6 +159,15 @@ export function registerSearchCommand(program: Command): void {
             if (result.contentType) {
               console.log(`      type:     ${result.contentType}`);
             }
+            if (result.matchedLayers.length > 1 || result.matchedLayers[0] === "semantic") {
+              console.log(`      layers:   ${result.matchedLayers.join(", ")}`);
+            }
+            if (result.semanticTitle) {
+              console.log(`      semantic: ${result.semanticTitle}`);
+            }
+            if (result.semanticQualityScore !== undefined) {
+              console.log(`      sem q:    ${result.semanticQualityScore.toFixed(2)}`);
+            }
             if (result.explain) {
               console.log("      explain:");
               if (result.explain.vectorScore !== undefined) {
