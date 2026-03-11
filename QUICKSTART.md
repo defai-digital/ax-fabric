@@ -255,6 +255,35 @@ High-value semantic MCP tools include:
 - `fabric_semantic_approve_bundle`
 - `fabric_semantic_publish_bundle`
 
+## Path D: Local Benchmark Harness
+
+Use this when you want a quick local speed check before or after changing retrieval, semantic publish, or eval behavior.
+
+### 1. Search benchmark
+
+```bash
+pnpm exec ax-fabric benchmark search --docs 250 --runs 10 --warmup 3 --mode hybrid
+```
+
+### 2. Semantic publish benchmark
+
+```bash
+pnpm exec ax-fabric benchmark semantic-publish --sections 20 --replace
+```
+
+### 3. Eval benchmark
+
+```bash
+pnpm exec ax-fabric benchmark eval --docs 250 --cases 25 --compare-semantic --json
+```
+
+Notes:
+
+- the benchmark harness uses synthetic corpora
+- it runs in a temporary workspace
+- it does not modify your normal `~/.ax-fabric` data root
+- `--json` is useful for CI or local regression checks
+
 ## Useful Commands
 
 Health check:

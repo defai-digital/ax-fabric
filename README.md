@@ -153,6 +153,24 @@ pnpm exec ax-fabric eval ./fixture.json
 pnpm exec ax-fabric eval ./fixture.json --compare
 ```
 
+## Benchmarking
+
+AX Fabric includes a local benchmark harness for quick regression checks on:
+
+- raw search latency
+- semantic publish latency
+- eval-style retrieval runtime
+
+Useful commands:
+
+```bash
+pnpm exec ax-fabric benchmark search --docs 250 --runs 10 --warmup 3 --mode hybrid
+pnpm exec ax-fabric benchmark semantic-publish --sections 20 --replace
+pnpm exec ax-fabric benchmark eval --docs 250 --cases 25 --compare-semantic --json
+```
+
+Use this harness for local performance checks and CI smoke gates. It runs on synthetic corpora in a temporary workspace and does not modify your normal `~/.ax-fabric` data root.
+
 ## Editions And Scope
 
 This repository is the **OSS + Business semantic workflow core**.

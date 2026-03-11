@@ -19,6 +19,7 @@ import { registerDaemonCommand } from "./cli/daemon.js";
 import { registerDoctorCommand } from "./cli/doctor.js";
 import { registerMemoryCommand } from "./cli/memory.js";
 import { registerSemanticCommand } from "./cli/semantic.js";
+import { registerBenchmarkCommand } from "./cli/benchmark.js";
 
 const program = new Command();
 
@@ -46,5 +47,6 @@ registerDaemonCommand(program);
 registerDoctorCommand(program);
 registerMemoryCommand(program);
 registerSemanticCommand(program);
+registerBenchmarkCommand(program);
 
 program.parse();

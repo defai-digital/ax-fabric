@@ -18,3 +18,10 @@ export {
   type SemanticUnitLookup,
   type SemanticPublishedBundleRef,
 } from "./semantic-store.js";
+
+export {
+  buildSemanticRecords,
+  ensureSemanticCollection,
+  semanticChunkIds,
+  semanticPipelineSignature,
+} from "./publish-support.js";
