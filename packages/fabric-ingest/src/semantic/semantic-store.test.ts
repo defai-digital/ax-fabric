@@ -86,4 +86,36 @@ describe("SemanticStore", () => {
       rmSync(workdir, { recursive: true, force: true });
     }
   });
+
+  it("lists published semantic unit lookups without loading full bundles", async () => {
+    const workdir = mkdtempSync(join(tmpdir(), "semantic-store-lookups-"));
+    const dbPath = join(workdir, "semantic.db");
+    const filePath = join(workdir, "guide.txt");
+    writeFileSync(filePath, "Published semantic lookups should be queryable directly from the store.", "utf8");
+
+    try {
+      const engine = new SemanticReviewEngine();
+      const bundle = await engine.createBundle(filePath);
+      const store = new SemanticStore(dbPath);
+      store.upsertBundle(bundle);
+      store.markPublished(bundle.bundle_id, {
+        collectionId: "default-semantic",
+        manifestVersion: 1,
+        publishedAt: new Date().toISOString(),
+      });
+
+      const lookups = store.listPublishedUnitLookups("default-semantic");
+      expect(lookups.length).toBeGreaterThan(0);
+      expect(lookups[0]!.chunkId).toMatch(/^semantic:/);
+      expect(lookups[0]!.sourcePath).toBe(filePath);
+      expect(lookups[0]!.collectionId).toBe("default-semantic");
+
+      const single = store.getPublishedUnitLookup(lookups[0]!.chunkId);
+      expect(single?.sourcePath).toBe(filePath);
+      expect(single?.dedupeKey).toBeTruthy();
+      store.close();
+    } finally {
+      rmSync(workdir, { recursive: true, force: true });
+    }
+  });
 });

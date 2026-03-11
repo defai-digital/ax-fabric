@@ -28,6 +28,14 @@ export interface StoredSemanticBundle {
   publication: SemanticPublicationState | null;
 }
 
+export interface SemanticUnitLookup {
+  chunkId: string;
+  sourcePath: string;
+  contentType: string;
+  dedupeKey: string;
+  collectionId: string | null;
+}
+
 export class SemanticStore {
   private readonly db: DatabaseSync;
 
@@ -246,6 +254,67 @@ export class SemanticStore {
     }));
   }
 
+  listPublishedUnitLookups(collectionId?: string): SemanticUnitLookup[] {
+    const rows = this.db.prepare(`
+      SELECT
+        b.published_collection_id,
+        u.unit_id,
+        s.source_uri,
+        s.content_type,
+        s.chunk_id
+      FROM semantic_units u
+      INNER JOIN semantic_bundles b ON b.bundle_id = u.bundle_id
+      INNER JOIN semantic_spans s
+        ON s.unit_id = u.unit_id
+       AND s.bundle_id = u.bundle_id
+       AND s.span_index = 0
+      WHERE b.published_collection_id IS NOT NULL
+        AND (? IS NULL OR b.published_collection_id = ?)
+      ORDER BY b.bundle_id, u.unit_id
+    `).all(collectionId ?? null, collectionId ?? null) as Array<Record<string, unknown>>;
+
+    return rows.map((row) => ({
+      chunkId: `semantic:${String(row["unit_id"])}`,
+      sourcePath: String(row["source_uri"]),
+      contentType: String(row["content_type"]),
+      dedupeKey: String(row["chunk_id"]),
+      collectionId: row["published_collection_id"] === null ? null : String(row["published_collection_id"]),
+    }));
+  }
+
+  getPublishedUnitLookup(chunkId: string): SemanticUnitLookup | null {
+    const unitId = chunkId.startsWith("semantic:") ? chunkId.slice("semantic:".length) : chunkId;
+    const row = this.db.prepare(`
+      SELECT
+        b.published_collection_id,
+        u.unit_id,
+        s.source_uri,
+        s.content_type,
+        s.chunk_id
+      FROM semantic_units u
+      INNER JOIN semantic_bundles b ON b.bundle_id = u.bundle_id
+      INNER JOIN semantic_spans s
+        ON s.unit_id = u.unit_id
+       AND s.bundle_id = u.bundle_id
+       AND s.span_index = 0
+      WHERE u.unit_id = ?
+        AND b.published_collection_id IS NOT NULL
+      LIMIT 1
+    `).get(unitId) as Record<string, unknown> | undefined;
+
+    if (!row) {
+      return null;
+    }
+
+    return {
+      chunkId: `semantic:${String(row["unit_id"])}`,
+      sourcePath: String(row["source_uri"]),
+      contentType: String(row["content_type"]),
+      dedupeKey: String(row["chunk_id"]),
+      collectionId: row["published_collection_id"] === null ? null : String(row["published_collection_id"]),
+    };
+  }
+
   updateReview(bundleId: string, review: SemanticReviewDecision): SemanticBundle {
     const bundle = this.getBundle(bundleId);
     if (!bundle) {
@@ -368,6 +437,15 @@ export class SemanticStore {
         FOREIGN KEY(bundle_id) REFERENCES semantic_bundles(bundle_id) ON DELETE CASCADE,
         FOREIGN KEY(unit_id) REFERENCES semantic_units(unit_id) ON DELETE CASCADE
       );
+
+      CREATE INDEX IF NOT EXISTS idx_semantic_bundles_published_collection
+        ON semantic_bundles(published_collection_id);
+
+      CREATE INDEX IF NOT EXISTS idx_semantic_spans_unit_span
+        ON semantic_spans(unit_id, span_index);
+
+      CREATE INDEX IF NOT EXISTS idx_semantic_spans_chunk_id
+        ON semantic_spans(chunk_id);
     `);
   }
 }

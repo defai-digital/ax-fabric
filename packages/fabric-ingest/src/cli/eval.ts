@@ -79,7 +79,7 @@ export function registerEvalCommand(program: Command): void {
       const db = new AkiDB({ storagePath: expandTilde(config.akidb.root) });
 
       const rawCollectionId = config.akidb.collection;
-      const semanticCollectionId = `${rawCollectionId}-semantic`;
+      const semanticCollectionId = `${rawCollectionId}${config.retrieval.semantic_collection_suffix}`;
 
       const rawModeSummaries = new Map<ModeSummary["mode"], ModeSummary>([
         ["vector", { mode: "vector", cases: 0, hitAtK: 0, missAtK: 0 }],
@@ -130,18 +130,10 @@ export function registerEvalCommand(program: Command): void {
           if (existsSync(semanticDbPath)) {
             try {
               const semanticStore = new SemanticStore(semanticDbPath);
-              const bundles = semanticStore.listBundles();
-              if (bundles.length > 0) {
-                // Build map: semantic:<unit_id> -> source_uri
-                for (const summary of bundles) {
-                  const stored = semanticStore.getStoredBundle(summary.bundleId);
-                  if (stored) {
-                    for (const unit of stored.bundle.units) {
-                      const chunkId = `semantic:${unit.unit_id}`;
-                      const sourceUri = unit.source_spans[0]?.source_uri ?? summary.sourcePath;
-                      semanticFilesByChunkId.set(chunkId, sourceUri);
-                    }
-                  }
+              const lookups = semanticStore.listPublishedUnitLookups(semanticCollectionId);
+              if (lookups.length > 0) {
+                for (const lookup of lookups) {
+                  semanticFilesByChunkId.set(lookup.chunkId, lookup.sourcePath);
                 }
                 semanticAvailable = true;
               }

@@ -12,7 +12,7 @@ import type { ExplainInfo } from "@ax-fabric/akidb";
 import type { MetadataFilter } from "@ax-fabric/akidb";
 
 import { JobRegistry } from "../registry/index.js";
-import { SemanticStore } from "../semantic/index.js";
+import { SemanticStore, type SemanticUnitLookup } from "../semantic/index.js";
 
 import { loadConfig, resolveConfigPath, resolveDataRoot } from "./config-loader.js";
 import { createEmbedderFromConfig } from "./create-embedder.js";
@@ -542,18 +542,8 @@ function loadSearchMetadata(dataRoot: string): Map<string, SearchResultMetadata>
   try {
     const store = new SemanticStore(semanticDbPath);
     try {
-      for (const summary of store.listBundles()) {
-        const stored = store.getStoredBundle(summary.bundleId);
-        if (!stored) continue;
-        for (const unit of stored.bundle.units) {
-          const span = unit.source_spans[0];
-          if (!span) continue;
-          metadata.set(`semantic:${unit.unit_id}`, {
-            sourcePath: span.source_uri,
-            contentType: span.content_type,
-            dedupeKey: span.chunk_id,
-          });
-        }
+      for (const lookup of store.listPublishedUnitLookups()) {
+        setSemanticLookup(metadata, lookup);
       }
     } finally {
       store.close();
@@ -563,6 +553,17 @@ function loadSearchMetadata(dataRoot: string): Map<string, SearchResultMetadata>
   }
 
   return metadata;
+}
+
+function setSemanticLookup(
+  metadata: Map<string, SearchResultMetadata>,
+  lookup: SemanticUnitLookup,
+): void {
+  metadata.set(lookup.chunkId, {
+    sourcePath: lookup.sourcePath,
+    contentType: lookup.contentType,
+    dedupeKey: lookup.dedupeKey,
+  });
 }
 
 function guessContentType(sourcePath: string): string {
