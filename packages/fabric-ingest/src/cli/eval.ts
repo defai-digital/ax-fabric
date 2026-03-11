@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { readFileSync, existsSync } from "node:fs";
 import { join } from "node:path";
 import { homedir } from "node:os";
 
@@ -9,6 +9,7 @@ import { AkiDB } from "@ax-fabric/akidb";
 import { JobRegistry } from "../registry/index.js";
 import { loadConfig, resolveConfigPath, resolveDataRoot } from "./config-loader.js";
 import { createEmbedderFromConfig } from "./create-embedder.js";
+import { SemanticStore } from "../semantic/index.js";
 
 const EvalCaseSchema = z.object({
   query: z.string().min(1),
@@ -56,7 +57,8 @@ export function registerEvalCommand(program: Command): void {
     .description("Evaluate retrieval quality across vector, keyword, and hybrid modes")
     .option("--json", "Print machine-readable evaluation output")
     .option("-k, --top-k <number>", "Override top-k for all cases", "5")
-    .action(async (fixturePath: string, opts: { json?: boolean; topK: string }) => {
+    .option("--compare", "Compare raw vs semantic collection retrieval quality")
+    .action(async (fixturePath: string, opts: { json?: boolean; topK: string; compare?: boolean }) => {
       const configPath = resolveConfigPath();
       const config = loadConfig(configPath);
       const topKOverride = Number.parseInt(opts.topK, 10);
@@ -76,7 +78,10 @@ export function registerEvalCommand(program: Command): void {
       const embedder = createEmbedderFromConfig(config);
       const db = new AkiDB({ storagePath: expandTilde(config.akidb.root) });
 
-      const modeSummaries = new Map<ModeSummary["mode"], ModeSummary>([
+      const rawCollectionId = config.akidb.collection;
+      const semanticCollectionId = `${rawCollectionId}-semantic`;
+
+      const rawModeSummaries = new Map<ModeSummary["mode"], ModeSummary>([
         ["vector", { mode: "vector", cases: 0, hitAtK: 0, missAtK: 0 }],
         ["keyword", { mode: "keyword", cases: 0, hitAtK: 0, missAtK: 0 }],
         ["hybrid", { mode: "hybrid", cases: 0, hitAtK: 0, missAtK: 0 }],
@@ -100,12 +105,12 @@ export function registerEvalCommand(program: Command): void {
             topKOverride,
             db,
             embedder,
-            collectionId: config.akidb.collection,
+            collectionId: rawCollectionId,
             filesByChunkId,
           });
 
           for (const modeResult of caseResult.modes) {
-            const summary = modeSummaries.get(modeResult.mode)!;
+            const summary = rawModeSummaries.get(modeResult.mode)!;
             summary.cases += 1;
             if (modeResult.hitAtK) {
               summary.hitAtK += 1;
@@ -115,6 +120,144 @@ export function registerEvalCommand(program: Command): void {
           }
           caseResults.push(caseResult);
         }
+
+        if (opts.compare === true) {
+          // Build semantic chunk id map from SemanticStore
+          const semanticDbPath = join(dataRoot, "semantic.db");
+          let semanticFilesByChunkId: Map<string, string> = new Map();
+          let semanticAvailable = false;
+
+          if (existsSync(semanticDbPath)) {
+            try {
+              const semanticStore = new SemanticStore(semanticDbPath);
+              const bundles = semanticStore.listBundles();
+              if (bundles.length > 0) {
+                // Build map: semantic:<unit_id> -> source_uri
+                for (const summary of bundles) {
+                  const stored = semanticStore.getStoredBundle(summary.bundleId);
+                  if (stored) {
+                    for (const unit of stored.bundle.units) {
+                      const chunkId = `semantic:${unit.unit_id}`;
+                      const sourceUri = unit.source_spans[0]?.source_uri ?? summary.sourcePath;
+                      semanticFilesByChunkId.set(chunkId, sourceUri);
+                    }
+                  }
+                }
+                semanticAvailable = true;
+              }
+              semanticStore.close();
+            } catch {
+              // SemanticStore not available
+            }
+          }
+
+          if (!semanticAvailable) {
+            console.warn(`Warning: semantic collection "${semanticCollectionId}" not available — skipping semantic eval`);
+          } else {
+            const semanticModeSummaries = new Map<ModeSummary["mode"], ModeSummary>([
+              ["vector", { mode: "vector", cases: 0, hitAtK: 0, missAtK: 0 }],
+              ["keyword", { mode: "keyword", cases: 0, hitAtK: 0, missAtK: 0 }],
+              ["hybrid", { mode: "hybrid", cases: 0, hitAtK: 0, missAtK: 0 }],
+            ]);
+
+            for (const testCase of parsedFixture.cases) {
+              let semResult;
+              try {
+                semResult = await evaluateCase({
+                  testCase,
+                  topKOverride,
+                  db,
+                  embedder,
+                  collectionId: semanticCollectionId,
+                  filesByChunkId: semanticFilesByChunkId,
+                });
+              } catch {
+                console.warn(`Warning: could not evaluate against semantic collection "${semanticCollectionId}" — skipping`);
+                break;
+              }
+
+              for (const modeResult of semResult.modes) {
+                const summary = semanticModeSummaries.get(modeResult.mode)!;
+                summary.cases += 1;
+                if (modeResult.hitAtK) {
+                  summary.hitAtK += 1;
+                } else {
+                  summary.missAtK += 1;
+                }
+              }
+            }
+
+            const rawTotals = Array.from(rawModeSummaries.values()).map((entry) => ({
+              ...entry,
+              hitRate: entry.cases > 0 ? entry.hitAtK / entry.cases : 0,
+            }));
+            const semanticTotals = Array.from(semanticModeSummaries.values()).map((entry) => ({
+              ...entry,
+              hitRate: entry.cases > 0 ? entry.hitAtK / entry.cases : 0,
+            }));
+
+            if (opts.json) {
+              const delta = rawTotals.map((rawEntry) => {
+                const semEntry = semanticTotals.find((s) => s.mode === rawEntry.mode)!;
+                return {
+                  mode: rawEntry.mode,
+                  deltaHit: semEntry.hitAtK - rawEntry.hitAtK,
+                  deltaRate: semEntry.hitRate - rawEntry.hitRate,
+                };
+              });
+
+              console.log(JSON.stringify({
+                fixturePath,
+                raw: {
+                  collectionId: rawCollectionId,
+                  totals: rawTotals,
+                  cases: caseResults,
+                },
+                semantic: {
+                  collectionId: semanticCollectionId,
+                  totals: semanticTotals,
+                },
+                delta,
+              }, null, 2));
+              return;
+            }
+
+            console.log(`\nEvaluation fixture: ${fixturePath}\n`);
+            console.log(`Raw collection: ${rawCollectionId}`);
+            for (const entry of rawTotals) {
+              console.log(
+                `  ${entry.mode.padEnd(7)} cases=${String(entry.cases).padStart(2, " ")} `
+                + `hit@k=${String(entry.hitAtK).padStart(2, " ")} `
+                + `miss=${String(entry.missAtK).padStart(2, " ")} `
+                + `rate=${entry.hitRate.toFixed(2)}`,
+              );
+            }
+            console.log();
+            console.log(`Semantic collection: ${semanticCollectionId}`);
+            for (const entry of semanticTotals) {
+              console.log(
+                `  ${entry.mode.padEnd(7)} cases=${String(entry.cases).padStart(2, " ")} `
+                + `hit@k=${String(entry.hitAtK).padStart(2, " ")} `
+                + `miss=${String(entry.missAtK).padStart(2, " ")} `
+                + `rate=${entry.hitRate.toFixed(2)}`,
+              );
+            }
+            console.log();
+            console.log("Comparison (semantic − raw):");
+            for (const rawEntry of rawTotals) {
+              const semEntry = semanticTotals.find((s) => s.mode === rawEntry.mode)!;
+              const deltaHit = semEntry.hitAtK - rawEntry.hitAtK;
+              const deltaRate = semEntry.hitRate - rawEntry.hitRate;
+              const deltaHitStr = deltaHit >= 0 ? `+${String(deltaHit)}` : String(deltaHit);
+              const deltaRateStr = deltaRate >= 0 ? `+${deltaRate.toFixed(2)}` : deltaRate.toFixed(2);
+              console.log(
+                `  ${rawEntry.mode.padEnd(7)} Δhit=${deltaHitStr}  Δrate=${deltaRateStr}`,
+              );
+            }
+            console.log();
+            return;
+          }
+        }
       } finally {
         registry.close();
         db.close();
@@ -123,8 +266,8 @@ export function registerEvalCommand(program: Command): void {
 
       const summary = {
         fixturePath,
-        collectionId: config.akidb.collection,
-        totals: Array.from(modeSummaries.values()).map((entry) => ({
+        collectionId: rawCollectionId,
+        totals: Array.from(rawModeSummaries.values()).map((entry) => ({
           ...entry,
           hitRate: entry.cases > 0 ? entry.hitAtK / entry.cases : 0,
         })),
@@ -137,7 +280,7 @@ export function registerEvalCommand(program: Command): void {
       }
 
       console.log(`\nEvaluation fixture: ${fixturePath}`);
-      console.log(`Collection:        ${config.akidb.collection}\n`);
+      console.log(`Collection:        ${rawCollectionId}\n`);
       for (const entry of summary.totals) {
         console.log(
           `${entry.mode.padEnd(7)} cases=${String(entry.cases).padStart(2, " ")} `

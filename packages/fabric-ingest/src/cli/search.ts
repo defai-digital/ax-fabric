@@ -7,6 +7,7 @@ import { homedir } from "node:os";
 
 import type { Command } from "commander";
 import { AkiDB } from "@ax-fabric/akidb";
+import type { ExplainInfo } from "@ax-fabric/akidb";
 
 import { JobRegistry } from "../registry/index.js";
 
@@ -35,6 +36,8 @@ export function registerSearchCommand(program: Command): void {
     .option("--session <id>", "Session ID for assembling stored memory context")
     .option("--workflow <id>", "Workflow ID for narrowing stored memory context")
     .option("--answer", "Generate an answer from retrieved chunks (requires LLM config)")
+    .option("--semantic", "Search the <collection>-semantic AkiDB collection instead of raw chunks")
+    .option("--fuse", "Client-side RRF fusion across raw and semantic collections")
     .action(async (query: string, opts: {
       topK: string;
       mode?: string;
@@ -43,6 +46,8 @@ export function registerSearchCommand(program: Command): void {
       session?: string;
       workflow?: string;
       answer?: boolean;
+      semantic?: boolean;
+      fuse?: boolean;
     }) => {
       try {
       const configPath = resolveConfigPath();
@@ -70,6 +75,10 @@ export function registerSearchCommand(program: Command): void {
       // When --answer is requested, enable explain to get chunk previews for RAG
       const needExplain = opts.answer === true || opts.explain === true;
 
+      // Determine which collection(s) to query
+      const rawCollectionId = config.akidb.collection;
+      const semanticCollectionId = `${rawCollectionId}-semantic`;
+
       try {
         let queryVector = new Float32Array(0);
         if (mode === "vector" || mode === "hybrid") {
@@ -81,62 +90,173 @@ export function registerSearchCommand(program: Command): void {
           queryVector = new Float32Array(vec0);
         }
 
-        const searchResult = await db.search({
-          collectionId: config.akidb.collection,
-          queryVector,
-          topK,
-          mode,
-          queryText: mode === "keyword" || mode === "hybrid" ? query : undefined,
-          explain: needExplain,
-        });
+        // Determine active collection for single-collection modes
+        const activeCollectionId = opts.semantic === true ? semanticCollectionId : rawCollectionId;
 
-        if (searchResult.results.length === 0) {
+        type RenderedResult = {
+          chunkId: string;
+          score: number;
+          sourcePath: string | null;
+          contentType: string | null;
+          explain: ExplainInfo | null | undefined;
+          collection?: string;
+        };
+
+        let renderedResults: RenderedResult[] = [];
+        let manifestVersionUsed: number | undefined;
+
+        if (opts.fuse === true) {
+          // Client-side RRF fusion across raw and semantic collections
+          const rawResult = await db.search({
+            collectionId: rawCollectionId,
+            queryVector,
+            topK,
+            mode,
+            queryText: mode === "keyword" || mode === "hybrid" ? query : undefined,
+            explain: needExplain,
+          });
+
+          let semanticResults: typeof rawResult.results = [];
+          try {
+            const semResult = await db.search({
+              collectionId: semanticCollectionId,
+              queryVector,
+              topK,
+              mode,
+              queryText: mode === "keyword" || mode === "hybrid" ? query : undefined,
+              explain: needExplain,
+            });
+            semanticResults = semResult.results;
+          } catch {
+            console.warn(`Warning: semantic collection "${semanticCollectionId}" not found — falling back to raw-only results`);
+          }
+
+          manifestVersionUsed = rawResult.manifestVersionUsed;
+
+          // RRF fusion: score = 1/(60 + rank) per collection, sum scores, deduplicate by chunkId
+          type ScoredEntry = { chunkId: string; rrfScore: number; collection: string; originalResult: typeof rawResult.results[number] };
+          const byChunkId = new Map<string, ScoredEntry>();
+
+          const applyRrf = (results: typeof rawResult.results, collection: string): void => {
+            results.forEach((result, idx) => {
+              const rank = idx + 1;
+              const rrfContrib = 1 / (60 + rank);
+              const existing = byChunkId.get(result.chunkId);
+              if (existing) {
+                existing.rrfScore += rrfContrib;
+              } else {
+                byChunkId.set(result.chunkId, {
+                  chunkId: result.chunkId,
+                  rrfScore: rrfContrib,
+                  collection,
+                  originalResult: result,
+                });
+              }
+            });
+          };
+
+          applyRrf(rawResult.results, "raw");
+          applyRrf(semanticResults, "semantic");
+
+          const fused = Array.from(byChunkId.values())
+            .sort((a, b) => b.rrfScore - a.rrfScore)
+            .slice(0, topK);
+
+          // Load the registry to look up file metadata
+          const registryDbPath = join(dataRoot, "registry.db");
+          let registry: JobRegistry | null = null;
+          let filesByChunkId: Map<string, { sourcePath: string; contentType: string }> | null = null;
+          try {
+            registry = new JobRegistry(registryDbPath);
+            filesByChunkId = buildChunkIndex(registry);
+          } catch (err) {
+            console.warn(`Warning: could not load registry (source paths will be missing): ${err instanceof Error ? err.message : String(err)}`);
+          }
+
+          renderedResults = fused.map((entry) => {
+            const meta = filesByChunkId?.get(entry.chunkId);
+            return {
+              chunkId: entry.chunkId,
+              score: entry.rrfScore,
+              sourcePath: meta?.sourcePath ?? null,
+              contentType: meta?.contentType ?? null,
+              explain: entry.originalResult.explain ?? null,
+              collection: entry.collection,
+            } as RenderedResult;
+          });
+
+          registry?.close();
+        } else {
+          const searchResult = await db.search({
+            collectionId: activeCollectionId,
+            queryVector,
+            topK,
+            mode,
+            queryText: mode === "keyword" || mode === "hybrid" ? query : undefined,
+            explain: needExplain,
+          });
+
+          manifestVersionUsed = searchResult.manifestVersionUsed;
+
+          // Load the registry to look up file metadata for each chunk
+          const registryDbPath = join(dataRoot, "registry.db");
+          let registry: JobRegistry | null = null;
+          let filesByChunkId: Map<string, { sourcePath: string; contentType: string }> | null = null;
+
+          try {
+            registry = new JobRegistry(registryDbPath);
+            filesByChunkId = buildChunkIndex(registry);
+          } catch (err) {
+            console.warn(`Warning: could not load registry (source paths will be missing): ${err instanceof Error ? err.message : String(err)}`);
+          }
+
+          renderedResults = searchResult.results.map((result) => {
+            const meta = filesByChunkId?.get(result.chunkId);
+            return {
+              chunkId: result.chunkId,
+              score: result.score,
+              sourcePath: meta?.sourcePath ?? null,
+              contentType: meta?.contentType ?? null,
+              explain: result.explain ?? null,
+            } as RenderedResult;
+          });
+
+          registry?.close();
+        }
+
+        if (renderedResults.length === 0) {
           console.log("No results found.");
           return;
         }
-
-        // Load the registry to look up file metadata for each chunk
-        const registryDbPath = join(dataRoot, "registry.db");
-        let registry: JobRegistry | null = null;
-        let filesByChunkId: Map<string, { sourcePath: string; contentType: string }> | null = null;
-
-        try {
-          registry = new JobRegistry(registryDbPath);
-          filesByChunkId = buildChunkIndex(registry);
-        } catch (err) {
-          console.warn(`Warning: could not load registry (source paths will be missing): ${err instanceof Error ? err.message : String(err)}`);
-        }
-
-        const renderedResults = searchResult.results.map((result) => {
-          const meta = filesByChunkId?.get(result.chunkId);
-          return {
-            chunkId: result.chunkId,
-            score: result.score,
-            sourcePath: meta?.sourcePath ?? null,
-            contentType: meta?.contentType ?? null,
-            explain: result.explain ?? null,
-          };
-        });
 
         if (opts.json) {
           console.log(JSON.stringify({
             query,
             mode,
             topK,
-            manifestVersion: searchResult.manifestVersionUsed,
+            collection: opts.fuse === true ? "fused" : activeCollectionId,
+            manifestVersion: manifestVersionUsed,
             results: renderedResults,
           }, null, 2));
         } else {
           console.log(`\nSearch results for: "${query}"\n`);
           console.log(`  Mode:             ${mode}`);
-          console.log(`  Manifest version: ${String(searchResult.manifestVersionUsed)}`);
-          console.log(`  Results:          ${String(searchResult.results.length)}\n`);
+          if (opts.semantic === true) {
+            console.log(`  Collection:       ${semanticCollectionId}`);
+          } else if (opts.fuse === true) {
+            console.log(`  Collection:       fused (${rawCollectionId} + ${semanticCollectionId})`);
+          }
+          console.log(`  Manifest version: ${String(manifestVersionUsed)}`);
+          console.log(`  Results:          ${String(renderedResults.length)}\n`);
 
           for (let i = 0; i < renderedResults.length; i++) {
             const result = renderedResults[i]!;
             const rank = String(i + 1).padStart(2, " ");
             console.log(`  ${rank}. chunk_id: ${result.chunkId}`);
             console.log(`      score:    ${result.score.toFixed(6)}`);
+            if (opts.fuse === true && result.collection) {
+              console.log(`      collection: ${result.collection}`);
+            }
             if (result.sourcePath) {
               console.log(`      source:   ${result.sourcePath}`);
             }
@@ -174,8 +294,6 @@ export function registerSearchCommand(program: Command): void {
           }
         }
 
-        registry?.close();
-
         // Handle --answer flag: RAG flow
         if (opts.answer) {
           if (!config.llm) {
@@ -195,12 +313,11 @@ export function registerSearchCommand(program: Command): void {
           }
 
           // Collect chunk previews from explain info
-          const chunks = searchResult.results
+          const chunks = renderedResults
             .map((r, i) => {
               const preview = r.explain?.chunkPreview?.trim();
               if (!preview) return null;
-              const meta = filesByChunkId?.get(r.chunkId);
-              const source = meta ? ` [${meta.sourcePath}]` : "";
+              const source = r.sourcePath ? ` [${r.sourcePath}]` : "";
               return `[${String(i + 1)}]${source}\n${preview}`;
             })
             .filter((c): c is string => c !== null);

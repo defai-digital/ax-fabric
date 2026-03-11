@@ -1393,4 +1393,174 @@ describe("CLI commands", () => {
       expect(finalSummaries[0]!.publishedManifestVersion).toBeTypeOf("number");
     });
   });
+
+  // ─── semantic retrieval ───────────────────────────────────────────────────
+
+  describe("semantic retrieval", () => {
+    it("search --semantic routes to the semantic collection", async () => {
+      const sourceFile = join(sourceDir, "semantic-search-target.txt");
+      writeFileSync(
+        sourceFile,
+        "Semantic retrieval serves enriched knowledge units from the semantic collection.",
+        "utf-8",
+      );
+      const dbPath = join(dataRoot, "semantic.db");
+      const semanticCollection = "test-col-semantic";
+
+      // Ingest file into raw collection
+      (mockConfig as { ingest: { sources: Array<{ path: string }> } }).ingest.sources = [
+        { path: sourceDir },
+      ];
+
+      const runProgram = new Command();
+      runProgram.exitOverride();
+      const runIngest = runProgram.command("ingest");
+      registerIngestRunCommand(runIngest);
+      const runLogSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+      await runProgram.parseAsync(["node", "test", "ingest", "run"]);
+      runLogSpy.mockRestore();
+
+      // Store and publish to semantic collection
+      const semanticProgram = new Command();
+      semanticProgram.exitOverride();
+      registerSemanticCommand(semanticProgram);
+
+      const semLogSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+
+      await semanticProgram.parseAsync([
+        "node", "test", "semantic", "store", sourceFile, "--db", dbPath,
+      ]);
+
+      const store = new SemanticStore(dbPath);
+      const bundleSummaries = store.listBundles();
+      const bundleId = bundleSummaries[0]!.bundleId;
+      store.close();
+
+      await semanticProgram.parseAsync([
+        "node", "test", "semantic", "approve-store", bundleId,
+        "--reviewer", "ci",
+        "--min-quality", "0.1",
+        "--duplicate-policy", "warn",
+        "--db", dbPath,
+      ]);
+
+      await semanticProgram.parseAsync([
+        "node", "test", "semantic", "publish", bundleId,
+        "--db", dbPath,
+        "--collection", semanticCollection,
+      ]);
+      semLogSpy.mockRestore();
+
+      // Reopen db so search sees published data
+      db.close();
+      db = new AkiDB({ storagePath: akidbRoot });
+
+      // Search with --semantic
+      const searchProgram = new Command();
+      searchProgram.exitOverride();
+      registerSearchCommand(searchProgram);
+
+      const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+      await searchProgram.parseAsync([
+        "node", "test", "search",
+        "semantic retrieval knowledge",
+        "--semantic",
+        "--top-k", "3",
+      ]);
+      const output = logSpy.mock.calls.map((c) => c.join(" ")).join("\n");
+      logSpy.mockRestore();
+
+      expect(output).toContain(semanticCollection);
+    });
+
+    it("eval --compare shows comparison table with both collections and Comparison", async () => {
+      const sourceFile = join(sourceDir, "eval-compare-target.txt");
+      writeFileSync(
+        sourceFile,
+        "Evaluation comparison tests retrieval quality across raw and semantic collections.",
+        "utf-8",
+      );
+      const dbPath = join(dataRoot, "semantic.db");
+      const semanticCollection = "test-col-semantic";
+
+      // Ingest file into raw collection
+      (mockConfig as { ingest: { sources: Array<{ path: string }> } }).ingest.sources = [
+        { path: sourceDir },
+      ];
+
+      const runProgram = new Command();
+      runProgram.exitOverride();
+      const runIngest = runProgram.command("ingest");
+      registerIngestRunCommand(runIngest);
+      const runLogSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+      await runProgram.parseAsync(["node", "test", "ingest", "run"]);
+      runLogSpy.mockRestore();
+
+      // Store and publish to semantic collection
+      const semanticProgram = new Command();
+      semanticProgram.exitOverride();
+      registerSemanticCommand(semanticProgram);
+
+      const semLogSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+
+      await semanticProgram.parseAsync([
+        "node", "test", "semantic", "store", sourceFile, "--db", dbPath,
+      ]);
+
+      const store = new SemanticStore(dbPath);
+      const bundleSummaries = store.listBundles();
+      const bundleId = bundleSummaries[0]!.bundleId;
+      store.close();
+
+      await semanticProgram.parseAsync([
+        "node", "test", "semantic", "approve-store", bundleId,
+        "--reviewer", "ci",
+        "--min-quality", "0.1",
+        "--duplicate-policy", "warn",
+        "--db", dbPath,
+      ]);
+
+      await semanticProgram.parseAsync([
+        "node", "test", "semantic", "publish", bundleId,
+        "--db", dbPath,
+        "--collection", semanticCollection,
+      ]);
+      semLogSpy.mockRestore();
+
+      // Write eval fixture
+      const fixturePath = join(workDir, "eval-compare-fixture.json");
+      writeFileSync(
+        fixturePath,
+        JSON.stringify({
+          cases: [
+            {
+              query: "retrieval quality evaluation",
+              expected_sources: [sourceFile],
+              top_k: 3,
+            },
+          ],
+        }, null, 2),
+        "utf-8",
+      );
+
+      // Reopen db
+      db.close();
+      db = new AkiDB({ storagePath: akidbRoot });
+
+      const evalProgram = new Command();
+      evalProgram.exitOverride();
+      registerEvalCommand(evalProgram);
+
+      const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+      const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+      await evalProgram.parseAsync(["node", "test", "eval", fixturePath, "--compare"]);
+      const output = logSpy.mock.calls.map((c) => c.join(" ")).join("\n");
+      logSpy.mockRestore();
+      warnSpy.mockRestore();
+
+      expect(output).toContain("test-col");
+      expect(output).toContain(semanticCollection);
+      expect(output).toContain("Comparison");
+    });
+  });
 });

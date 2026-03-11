@@ -1,5 +1,22 @@
 # Changelog
 
+## v1.9.0
+
+Semantic retrieval fusion and evaluation comparison release.
+
+### Highlights
+
+- Added `--semantic` flag to `ax-fabric search` to query the `<collection>-semantic` AkiDB collection instead of raw chunks; collection name is printed in output so operators know which layer they are querying
+- Added `--fuse` flag to `ax-fabric search` for client-side RRF (Reciprocal Rank Fusion) across raw and semantic collections; merges results with `1/(60 + rank)` scoring, deduplicates by chunk ID, and labels each result with its source collection (`raw` or `semantic`); warns and falls back to raw-only if the semantic collection is missing
+- Added `--compare` flag to `ax-fabric eval` to run evaluation against both raw and semantic collections and print a side-by-side comparison table showing hit@K rates and deltas; uses `SemanticStore` to resolve semantic chunk IDs (`semantic:<unit_id>`) to source URIs via `source_spans[0].source_uri`
+- JSON output for `eval --compare` includes separate `raw` and `semantic` summary objects plus a `delta` object with per-mode `Δhit` and `Δrate` fields
+- All new flags are fully backward compatible: existing behavior is unchanged when no flags are provided
+
+### Notes
+
+- `v1.9.0` closes the retrieval loop opened in `v1.8.0`: operators can now search directly against the semantic layer, fuse raw and semantic results with RRF, and compare retrieval quality between the two layers using the eval harness
+- SemanticStore `dbPath` is resolved as `join(dataRoot, "semantic.db")` matching the publication path established in `v1.8.0`
+
 ## v1.8.0
 
 Canonical semantic store and publication release.
