@@ -1,5 +1,22 @@
 # Changelog
 
+## v1.9.2
+
+Bug-fix patch release.
+
+### Fixes
+
+- Added `"md"` to the `ContentType` enum in contracts and to the source-scanner `EXTENSION_MAP` so `.md` and `.markdown` files are now ingested by the pipeline (they were silently skipped despite being documented as supported and having a registered extractor)
+- Fixed `contentTypeForExtension` in the semantic distiller to return `"md"` for `.md`/`.markdown` files instead of `"txt"`, matching what the scanner stores; the mismatch broke provenance linking and `--content-type md` filters on semantic results
+- Fixed `SemanticStore` resource leak in `eval --compare`: the store was not closed when `listPublishedUnitLookups()` threw, leaving the SQLite handle open; moved `close()` into a `finally` block
+- Fixed `req.socket.destroy()` in the orchestrator body-size guard: `IncomingMessage.socket` is typed `Socket | null`; changed to `req.socket?.destroy()` to avoid a `TypeError` when the socket is already gone
+- Fixed `db.close()` in the MCP server shutdown path: the call was unguarded so a throw would leave `close()` rejected and mask the real shutdown; wrapped in `try/catch` so shutdown always completes cleanly
+- Removed dead `getBundleState()` private method from `SemanticStore` (superseded by `getStoredBundle()`)
+
+### Notes
+
+- `v1.9.2` is a stability patch; no API or behavioral changes beyond the bug fixes above
+
 ## v1.9.1
 
 Semantic retrieval defaults and filtering patch release.
