@@ -119,6 +119,8 @@ Jump to: [OSS](#oss) | [Business](#business) | [Enterprise](#enterprise)
 | Metadata filters and explain output | Yes | Yes | Yes |
 | Local / self-hosted deployment | Yes | Yes | Yes |
 | Single-node runtime | Yes | Yes | Yes |
+| Semantic Distillation Engine | Yes | Yes | Yes |
+| Semantic Distillation Engine Plus (distributed, large-scale) | No | No | Yes |
 | Multi-node Mac Grid | No | Yes | Yes |
 | Multi-node NVIDIA CUDA Grid | No | No | Yes |
 | Commercial licensing terms | No | Included | Included |
@@ -130,6 +132,7 @@ Jump to: [OSS](#oss) | [Business](#business) | [Enterprise](#enterprise)
 
 - License: AGPL-3.0-or-later by default, with commercial licensing available as an alternative.
 - Includes the full AX Fabric runtime for single-node local deployments.
+- Includes the Semantic Distillation Engine: semantic unit generation, review, governance, and publication into AkiDB.
 - Best for individual builders, research, and teams operating under open-source terms.
 - Multi-node / grid deployment is not part of the OSS edition.
 
@@ -138,7 +141,7 @@ Jump to: [OSS](#oss) | [Business](#business) | [Enterprise](#enterprise)
 <details>
 <summary><strong id="business">Business</strong></summary>
 
-- Includes everything in OSS.
+- Includes everything in OSS, including the Semantic Distillation Engine.
 - Available under commercial terms (`LICENSE-COMMERCIAL.md`).
 - Supports multi-node deployment on Mac Grid worker nodes.
 - Companies with annual revenue under USD 2M can use Business features at no cost.
@@ -149,7 +152,8 @@ Jump to: [OSS](#oss) | [Business](#business) | [Enterprise](#enterprise)
 <details>
 <summary><strong id="enterprise">Enterprise</strong></summary>
 
-- Includes everything in Business.
+- Includes everything in Business, including the Semantic Distillation Engine.
+- Includes **Semantic Distillation Engine Plus**: distributed semantic distillation across worker nodes for very large-scale corpora, with coordinated bundle management, parallel semantic unit generation, and cross-node deduplication.
 - Supports multi-node deployment across Mac Grid and NVIDIA CUDA Grid.
 - Includes NVIDIA Jetson Thor optimisations.
 - Designed for enterprise-grade security, compliance, and procurement requirements.
