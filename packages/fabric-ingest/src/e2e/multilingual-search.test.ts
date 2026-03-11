@@ -85,7 +85,9 @@ const LANGUAGES = [
 
 // ─── Test Suite ──────────────────────────────────────────────────────────────
 
-describe("Multilingual PDF Ingestion & Search", () => {
+const allFilesPresent = LANGUAGES.every((lang) => existsSync(join(DATA_DIR, lang.file)));
+
+describe.skipIf(!allFilesPresent)("Multilingual PDF Ingestion & Search", () => {
   let storageDir: string;
   let registryDir: string;
   let akidb: AkiDB;
@@ -96,13 +98,6 @@ describe("Multilingual PDF Ingestion & Search", () => {
   // ── Setup: ingest all PDFs ───────────────────────────────────────────────
 
   beforeAll(async () => {
-    // Verify all files exist before starting
-    for (const lang of LANGUAGES) {
-      const path = join(DATA_DIR, lang.file);
-      if (!existsSync(path)) {
-        throw new Error(`Missing test file: ${path}. Run the download step first.`);
-      }
-    }
 
     storageDir = mkdtempSync(join(tmpdir(), "ml-search-store-"));
     registryDir = mkdtempSync(join(tmpdir(), "ml-search-reg-"));

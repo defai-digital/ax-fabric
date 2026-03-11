@@ -9,7 +9,7 @@
  */
 
 import { describe, it, expect, afterAll } from "vitest";
-import { mkdtempSync, rmSync, statSync } from "node:fs";
+import { mkdtempSync, rmSync, statSync, existsSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { tmpdir } from "node:os";
 
@@ -40,7 +40,7 @@ function formatBytes(bytes: number): string {
 
 // ─── Test ────────────────────────────────────────────────────────────────────
 
-describe("PDF Ingestion Speed Test", () => {
+describe.skipIf(!existsSync(PDF_PATH))("PDF Ingestion Speed Test", () => {
   let storageDir: string;
   let registryDir: string;
   let akidb: AkiDB;
