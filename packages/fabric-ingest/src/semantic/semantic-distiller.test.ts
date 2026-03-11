@@ -37,6 +37,8 @@ describe("SemanticDistiller", () => {
         result.units[0]!.source_spans[0]!.offset_start,
       );
       expect(result.units[0]!.question).toContain("What is the key point");
+      expect(result.units[0]!.themes?.length ?? 0).toBeGreaterThan(0);
+      expect(result.units[0]!.quality_signals?.confidence).toBe(result.units[0]!.quality_score);
     } finally {
       rmSync(workdir, { recursive: true, force: true });
     }
@@ -191,8 +193,52 @@ describe("SemanticDistiller", () => {
       });
 
       expect(clean.units[0]!.quality_score).toBeGreaterThan(noisy.units[0]!.quality_score);
+      expect(noisy.units[0]!.quality_signals?.flags).toContain("repeated_lines");
+      expect(noisy.units[0]!.quality_signals?.flags).toContain("noisy_content");
+    } finally {
+      rmSync(workdir, { recursive: true, force: true });
+    }
+  });
+
+  it("emits themes and structured quality signals for retrieval and review", async () => {
+    const workdir = mkdtempSync(join(tmpdir(), "semantic-distill-metadata-"));
+    const filePath = join(workdir, "workflow.md");
+    writeFileSync(
+      filePath,
+      [
+        "# Publication Workflow",
+        "",
+        "AX Fabric semantic publication supports review approval, replacement publishing, and provenance-aware retrieval.",
+        "Semantic workflow diagnostics help operators judge quality and noise before publication.",
+      ].join("\n"),
+      "utf8",
+    );
+
+    try {
+      const distiller = new SemanticDistiller();
+      const result = await distillFileWithSingleChunk(distiller, filePath);
+
+      expect(result.units[0]!.themes).toContain("publication workflow");
+      expect(result.units[0]!.quality_signals).toMatchObject({
+        coverage: expect.any(Number),
+        density: expect.any(Number),
+        structure: expect.any(Number),
+        noise_penalty: expect.any(Number),
+        confidence: expect.any(Number),
+      });
     } finally {
       rmSync(workdir, { recursive: true, force: true });
     }
   });
 });
+
+async function distillFileWithSingleChunk(
+  distiller: SemanticDistiller,
+  filePath: string,
+) {
+  return distiller.distillFile(filePath, {
+    strategy: "markdown",
+    chunkSize: 400,
+    overlapRatio: 0,
+  });
+}

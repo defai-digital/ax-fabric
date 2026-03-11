@@ -166,7 +166,16 @@ describe("SemanticUnitSchema", () => {
     answer: "Semantic distillation produces grounded units derived directly from source text.",
     keywords: ["semantic", "distillation", "grounded"],
     entities: ["AX Fabric"],
+    themes: ["semantic workflow", "grounded retrieval"],
     quality_score: 0.82,
+    quality_signals: {
+      coverage: 0.82,
+      density: 0.76,
+      structure: 0.88,
+      noise_penalty: 0.08,
+      confidence: 0.82,
+      flags: [],
+    },
     distill_strategy: "extractive-v1",
     source_spans: [
       {
@@ -203,6 +212,16 @@ describe("SemanticUnitSchema", () => {
     expect(() => SemanticUnitSchema.parse({ ...valid, quality_score: 1.5 })).toThrow();
   });
 
+  it("rejects invalid quality signal ranges", () => {
+    expect(() => SemanticUnitSchema.parse({
+      ...valid,
+      quality_signals: {
+        ...valid.quality_signals,
+        confidence: 1.2,
+      },
+    })).toThrow();
+  });
+
   it("rejects empty source span arrays", () => {
     expect(() => SemanticUnitSchema.parse({ ...valid, source_spans: [] })).toThrow();
   });
@@ -228,7 +247,16 @@ describe("SemanticBundleSchema", () => {
         answer: "Semantic distillation produces grounded units derived directly from source text.",
         keywords: ["semantic", "distillation"],
         entities: ["AX Fabric"],
+        themes: ["semantic workflow"],
         quality_score: 0.8,
+        quality_signals: {
+          coverage: 0.8,
+          density: 0.72,
+          structure: 0.85,
+          noise_penalty: 0.05,
+          confidence: 0.8,
+          flags: [],
+        },
         distill_strategy: "extractive-v1",
         source_spans: [
           {

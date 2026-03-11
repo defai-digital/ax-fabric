@@ -22,6 +22,17 @@ export const SemanticSourceSpanSchema = z.object({
 
 export type SemanticSourceSpan = z.infer<typeof SemanticSourceSpanSchema>;
 
+export const SemanticQualitySignalsSchema = z.object({
+  coverage: z.number().min(0).max(1),
+  density: z.number().min(0).max(1),
+  structure: z.number().min(0).max(1),
+  noise_penalty: z.number().min(0).max(1),
+  confidence: z.number().min(0).max(1),
+  flags: z.array(z.string().min(1)).max(8),
+});
+
+export type SemanticQualitySignals = z.infer<typeof SemanticQualitySignalsSchema>;
+
 export const SemanticUnitSchema = z.object({
   unit_id: z.string().min(1),
   doc_id: z.string().min(1),
@@ -32,7 +43,9 @@ export const SemanticUnitSchema = z.object({
   answer: z.string().min(1),
   keywords: z.array(z.string().min(1)).max(12),
   entities: z.array(z.string().min(1)).max(12),
+  themes: z.array(z.string().min(1)).max(8).optional(),
   quality_score: z.number().min(0).max(1),
+  quality_signals: SemanticQualitySignalsSchema.optional(),
   distill_strategy: SemanticDistillStrategySchema,
   duplicate_group_id: z.string().min(1).optional(),
   duplicate_group_size: z.number().int().positive().optional(),

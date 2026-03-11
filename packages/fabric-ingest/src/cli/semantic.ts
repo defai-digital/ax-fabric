@@ -51,11 +51,25 @@ export function registerSemanticCommand(program: Command): void {
         console.log(`      answer:   ${unit.answer}`);
         console.log(`      quality:  ${unit.quality_score.toFixed(2)}`);
         console.log(`      source:   ${span.source_uri}:${String(span.offset_start)}-${String(span.offset_end)}`);
+        if (unit.themes && unit.themes.length > 0) {
+          console.log(`      themes:   ${unit.themes.join(", ")}`);
+        }
         if (unit.keywords.length > 0) {
           console.log(`      keywords: ${unit.keywords.join(", ")}`);
         }
         if (unit.entities.length > 0) {
           console.log(`      entities: ${unit.entities.join(", ")}`);
+        }
+        if (unit.quality_signals) {
+          console.log(
+            `      signals:  coverage=${unit.quality_signals.coverage.toFixed(2)} `
+            + `density=${unit.quality_signals.density.toFixed(2)} `
+            + `structure=${unit.quality_signals.structure.toFixed(2)} `
+            + `noise=${unit.quality_signals.noise_penalty.toFixed(2)}`,
+          );
+          if (unit.quality_signals.flags.length > 0) {
+            console.log(`      flags:    ${unit.quality_signals.flags.join(", ")}`);
+          }
         }
         if (unit.duplicate_group_size && unit.duplicate_group_size > 1) {
           console.log(`      duplicates: group=${unit.duplicate_group_id} size=${String(unit.duplicate_group_size)}`);

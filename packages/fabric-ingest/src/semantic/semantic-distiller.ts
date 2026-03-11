@@ -6,6 +6,7 @@ import { createHash } from "node:crypto";
 import type {
   ChunkLabel,
   RecordMetadata,
+  SemanticQualitySignals,
   SemanticUnit,
 } from "@ax-fabric/contracts";
 import { SemanticUnitSchema } from "@ax-fabric/contracts";
@@ -97,6 +98,8 @@ export class SemanticDistiller {
         chunk.text,
         options?.maxEntities ?? DEFAULT_MAX_ENTITIES,
       );
+      const themes = extractThemes(title, chunk.text, keywords, entities);
+      const qualitySignals = computeQualitySignals(chunk.text, chunk.label, keywords, entities);
       const canonicalText = normalizeForHash(`${title}\n${summary}\n${answer}`);
 
       const unit: SemanticUnit = {
@@ -109,7 +112,9 @@ export class SemanticDistiller {
         answer,
         keywords,
         entities,
-        quality_score: computeQualityScore(chunk.text, chunk.label, keywords, entities),
+        themes,
+        quality_score: qualitySignals.confidence,
+        quality_signals: qualitySignals,
         distill_strategy: "extractive-v1",
         source_spans: [
           {
@@ -322,38 +327,100 @@ function extractEntities(text: string, maxEntities: number): string[] {
   return Array.from(unique);
 }
 
-function computeQualityScore(
+function extractThemes(
+  title: string,
+  text: string,
+  keywords: string[],
+  entities: string[],
+): string[] {
+  const candidates = new Set<string>();
+  const normalizedTitle = normalizeWhitespace(title).toLowerCase();
+  if (normalizedTitle.length >= 4) {
+    candidates.add(normalizedTitle);
+  }
+
+  const topicMatches = text.match(/\b[A-Z][a-z]+(?:\s+[A-Z][a-z]+){0,2}\b/g) ?? [];
+  for (const match of topicMatches) {
+    const candidate = normalizeWhitespace(match).toLowerCase();
+    if (candidate.length >= 4) {
+      candidates.add(candidate);
+    }
+  }
+
+  for (const entity of entities) {
+    candidates.add(normalizeWhitespace(entity).toLowerCase());
+  }
+
+  for (const keyword of keywords) {
+    if (keyword.length >= 4) {
+      candidates.add(keyword);
+    }
+  }
+
+  return Array.from(candidates)
+    .filter((candidate) => !STOPWORDS.has(candidate))
+    .slice(0, 8);
+}
+
+function computeQualitySignals(
   text: string,
   label: ChunkLabel,
   keywords: string[],
   entities: string[],
-): number {
+): SemanticQualitySignals {
   const normalized = normalizeWhitespace(text);
   const length = normalized.length;
   const sentenceList = splitSentences(text);
   const sentences = sentenceList.length;
-  let score = 0.35;
+  const flags: string[] = [];
+  const coverage = clamp01(
+    length >= 120 && length <= 2200 ? 0.82
+      : length >= 60 ? 0.68
+      : 0.48,
+  );
+  const density = clamp01(
+    0.42
+      + (keywords.length >= 4 ? 0.24 : keywords.length >= 2 ? 0.14 : 0)
+      + (entities.length > 0 ? 0.1 : 0)
+      + (sentences >= 2 ? 0.1 : sentences === 1 ? 0.04 : 0),
+  );
+  const structure = clamp01(
+    0.48
+      + ((label === "heading" || label === "paragraph") ? 0.24 : 0.12)
+      + (sentences >= 2 ? 0.14 : 0)
+      + (averageSentenceLength(sentenceList) >= 24 ? 0.08 : 0),
+  );
 
-  if (length >= 120 && length <= 2200) score += 0.2;
-  else if (length >= 60) score += 0.1;
+  let noisePenalty = 0;
+  if (hasRepeatedLines(text)) {
+    noisePenalty += 0.12;
+    flags.push("repeated_lines");
+  }
+  if (looksNoisy(normalized)) {
+    noisePenalty += 0.1;
+    flags.push("noisy_content");
+  }
+  if (containsMostlyUppercaseWords(normalized)) {
+    noisePenalty += 0.08;
+    flags.push("uppercase_heavy");
+  }
+  if (sentences > 0 && averageSentenceLength(sentenceList) < 24) {
+    noisePenalty += 0.05;
+    flags.push("low_information_density");
+  }
 
-  if (sentences >= 2) score += 0.15;
-  else if (sentences === 1) score += 0.08;
+  const confidence = clamp01(
+    Number((0.28 + coverage * 0.25 + density * 0.24 + structure * 0.23 - noisePenalty).toFixed(2)),
+  );
 
-  if (keywords.length >= 4) score += 0.15;
-  else if (keywords.length >= 2) score += 0.1;
-
-  if (entities.length > 0) score += 0.05;
-
-  if (label === "heading" || label === "paragraph") score += 0.1;
-  else score += 0.05;
-
-  if (hasRepeatedLines(text)) score -= 0.12;
-  if (looksNoisy(normalized)) score -= 0.1;
-  if (containsMostlyUppercaseWords(normalized)) score -= 0.08;
-  if (sentences > 0 && averageSentenceLength(sentenceList) < 24) score -= 0.05;
-
-  return Math.min(0.98, Number(score.toFixed(2)));
+  return {
+    coverage: Number(coverage.toFixed(2)),
+    density: Number(density.toFixed(2)),
+    structure: Number(structure.toFixed(2)),
+    noise_penalty: Number(Math.min(1, noisePenalty).toFixed(2)),
+    confidence,
+    flags: Array.from(new Set(flags)).slice(0, 8),
+  };
 }
 
 function rankSummarySentences(sentences: string[]): Array<{ text: string; index: number; score: number }> {
@@ -456,6 +523,12 @@ function averageSentenceLength(sentences: string[]): number {
   if (sentences.length === 0) return 0;
   const totalWords = sentences.reduce((sum, sentence) => sum + sentence.split(/\s+/).length, 0);
   return totalWords / sentences.length;
+}
+
+function clamp01(value: number): number {
+  if (value < 0) return 0;
+  if (value > 1) return 1;
+  return value;
 }
 
 function digest(input: string): string {

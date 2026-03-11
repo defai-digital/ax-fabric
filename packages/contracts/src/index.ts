@@ -9,9 +9,11 @@ export {
 
 export {
   SemanticDistillStrategySchema,
+  SemanticQualitySignalsSchema,
   SemanticSourceSpanSchema,
   SemanticUnitSchema,
   type SemanticDistillStrategy,
+  type SemanticQualitySignals,
   type SemanticSourceSpan,
   type SemanticUnit,
 } from "./semantic-unit.js";
