@@ -12,6 +12,7 @@ For the overall product-family architecture, see [STACK.md](./STACK.md).
 For local-stack operating guidance, see [OPERATIONS.md](./OPERATIONS.md).
 For retrieval-quality and explainability workflows, see [SEARCH_QUALITY.md](./SEARCH_QUALITY.md).
 For memory and context workflows, see [MEMORY.md](./MEMORY.md).
+For semantic distillation workflows, see the [Semantic Distillation Engine](#semantic-distillation-engine) section below.
 
 ## Prerequisites
 
@@ -303,6 +304,93 @@ pnpm exec ax-fabric eval ./eval-fixture.json
 pnpm exec ax-fabric eval ./eval-fixture.json --json
 ```
 
+Once you have published semantic artifacts (see below), compare raw vs semantic retrieval quality directly:
+
+```bash
+pnpm exec ax-fabric eval ./eval-fixture.json --compare
+pnpm exec ax-fabric eval ./eval-fixture.json --compare --json
+```
+
+---
+
+## Semantic Distillation Engine
+
+The Semantic Distillation Engine turns raw chunks into governed semantic units — titled, summarised, question-answered knowledge objects with grounded provenance — and publishes them into a dedicated AkiDB collection for direct retrieval.
+
+### Workflow
+
+```
+ingest run  →  chunks (raw layer)
+                   ↓
+         semantic store <file>  →  semantic.db (semantic truth)
+                   ↓
+        semantic approve-store  →  review decision persisted
+                   ↓
+          semantic publish      →  AkiDB (semantic-<collection>)
+                   ↓
+         search --semantic / --fuse / eval --compare
+```
+
+### Step 1 — Preview before committing
+
+```bash
+# Inspect what semantic units would be generated for a file
+pnpm exec ax-fabric semantic preview ./docs/architecture.md
+
+# Limit output and get machine-readable JSON
+pnpm exec ax-fabric semantic preview ./docs/architecture.md --limit 5 --json
+```
+
+### Step 2 — Distil and store in the canonical semantic store
+
+```bash
+# Distil and persist to semantic.db in one step
+pnpm exec ax-fabric semantic store ./docs/architecture.md
+
+# List all stored bundles with review and publication status
+pnpm exec ax-fabric semantic bundles
+
+# Inspect a specific bundle
+pnpm exec ax-fabric semantic show <bundle-id>
+```
+
+### Step 3 — Review and approve
+
+```bash
+# Approve a bundle (sets review status to approved in semantic.db)
+pnpm exec ax-fabric semantic approve-store <bundle-id> \
+  --reviewer ops \
+  --min-quality 0.6 \
+  --duplicate-policy warn
+```
+
+The `--min-quality` threshold (0–1) gates approval. Units below the threshold block approval. `--duplicate-policy reject` blocks bundles that contain duplicate semantic groups.
+
+### Step 4 — Publish into AkiDB
+
+```bash
+# Embed semantic units and publish into a dedicated AkiDB collection
+pnpm exec ax-fabric semantic publish <bundle-id>
+
+# Publish to a named collection (default: <config.collection>-semantic)
+pnpm exec ax-fabric semantic publish <bundle-id> --collection my-semantic
+```
+
+### Step 5 — Search and compare
+
+```bash
+# Search the semantic collection directly
+pnpm exec ax-fabric search "authentication token expiry" --semantic
+
+# Fuse raw chunks + semantic units with RRF (best of both layers)
+pnpm exec ax-fabric search "authentication token expiry" --fuse
+
+# Compare Hit@K: raw vs semantic, all three search modes
+pnpm exec ax-fabric eval ./eval-fixture.json --compare
+```
+
+The `--fuse` flag merges results from both collections using Reciprocal Rank Fusion. Each result is labeled `raw` or `semantic` so you can see which layer contributed each hit.
+
 ---
 
 ## Metadata Filters
@@ -410,6 +498,10 @@ Config file: `~/.ax-fabric/config.yaml`. Created by `ax-fabric init`. Secrets ar
 
 - [README.md](README.md)
 - `~/.ax-fabric/config.yaml` — runtime configuration
+- [STACK.md](STACK.md) — product-family architecture
+- [OPERATIONS.md](OPERATIONS.md) — local-stack operating guidance
+- [SEARCH_QUALITY.md](SEARCH_QUALITY.md) — retrieval-quality and eval workflows
+- [MEMORY.md](MEMORY.md) — memory and context workflows
 - [LICENSE](LICENSE) — GNU AGPLv3-or-later
 - [LICENSING.md](LICENSING.md) — dual-license overview
 - [LICENSE-COMMERCIAL.md](LICENSE-COMMERCIAL.md) — Business and Enterprise commercial terms

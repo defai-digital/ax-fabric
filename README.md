@@ -182,6 +182,12 @@ Enterprise and license enquiries: `enquiry@automatosx.com`
 | Metadata filters (`$gt`, `$gte`, `$lt`, `$lte`, `$ne`, `$in`, `$nin`) | ✅ |
 | Per-query explain output (scores, ranks, chunk preview) | ✅ |
 | Segment compaction and tombstone GC | ✅ |
+| Semantic unit generation with grounded provenance (extractive-v1) | ✅ |
+| Semantic review, diagnostics, and approval workflows | ✅ |
+| Canonical SQLite semantic store (`semantic.db`) | ✅ |
+| Semantic bundle publication into AkiDB | ✅ |
+| Semantic-layer search (`--semantic`) and RRF fusion (`--fuse`) | ✅ |
+| Eval comparison: raw vs semantic Hit@K (`eval --compare`) | ✅ |
 
 ---
 
@@ -254,6 +260,21 @@ pnpm exec ax-fabric search "JWT expiry" --mode keyword
 
 # Hybrid search (vector + BM25 fused with RRF — best recall)
 pnpm exec ax-fabric search "authentication token expiry" --mode hybrid
+
+# Semantic Distillation Engine — preview, review, and publish
+pnpm exec ax-fabric semantic preview ./docs/architecture.md
+pnpm exec ax-fabric semantic store ./docs/architecture.md
+pnpm exec ax-fabric semantic approve-store <bundle-id> --reviewer ops --min-quality 0.6
+pnpm exec ax-fabric semantic publish <bundle-id>
+
+# Search the semantic layer directly
+pnpm exec ax-fabric search "authentication token expiry" --semantic
+
+# Fuse raw chunks + semantic units with RRF
+pnpm exec ax-fabric search "authentication token expiry" --fuse
+
+# Compare raw vs semantic retrieval quality
+pnpm exec ax-fabric eval fixture.json --compare
 ```
 
 For full setup details (embedders, daemon, MCP, TypeScript API, and first evaluation flow), see [QUICKSTART.md](./QUICKSTART.md).
@@ -318,8 +339,9 @@ Claude Desktop config:
 - `ax-fabric init`
 - `ax-fabric ingest add <path>` / `diff` / `run` / `status`
 - `ax-fabric ingest daemon start` / `status` / `stop`
-- `ax-fabric search <query> [--mode vector|keyword|hybrid] [--top-k N]`
-- `ax-fabric eval <fixture.json> [--json]`
+- `ax-fabric search <query> [--mode vector|keyword|hybrid] [--top-k N] [--semantic] [--fuse] [--explain]`
+- `ax-fabric eval <fixture.json> [--compare] [--json]`
+- `ax-fabric semantic preview <file>` / `export <file>` / `store <file>` / `bundles` / `show <id>` / `approve-store <id>` / `publish <id>`
 - `ax-fabric memory put|list|show|delete|assemble`
 - `ax-fabric mcp server` / `token show` / `token generate`
 - `ax-fabric orchestrator start`
