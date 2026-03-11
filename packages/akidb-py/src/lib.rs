@@ -4,7 +4,10 @@ use pyo3::exceptions::{PyKeyError, PyRuntimeError, PyValueError};
 use pyo3::prelude::*;
 use pyo3::types::{PyDict, PyList};
 
-use akidb_native::{AkiDbError, Collection, EngineInner, EngineOptions, Manifest, SearchMode, SearchOptions};
+use akidb_native::{
+    AkiDbError, Collection, EngineInner, EngineOptions, Manifest, NativeRecord, SearchMode,
+    SearchOptions,
+};
 
 // ─── Error conversion ────────────────────────────────────────────────────────
 
@@ -129,7 +132,7 @@ impl AkiDB {
     ) -> PyResult<Py<PyDict>> {
         let mut inner = self.inner.borrow_mut();
 
-        let mut json_records: Vec<serde_json::Value> = Vec::with_capacity(records.len());
+        let mut native_records: Vec<NativeRecord> = Vec::with_capacity(records.len());
         for (i, rec_obj) in records.iter().enumerate() {
             let rec = rec_obj.bind(py).downcast::<PyDict>().map_err(|_| {
                 PyRuntimeError::new_err("Each record must be a dict")
@@ -166,24 +169,24 @@ impl AkiDB {
                 None => serde_json::json!({}),
             };
 
-            let mut json_rec = serde_json::json!({
-                "chunk_id": chunk_id,
-                "doc_id": doc_id,
-                "vector": vector,
-                "metadata": metadata,
-            });
-
-            if let Some(text_obj) = rec.get_item("chunk_text")? {
-                let text: String = text_obj.extract()?;
-                if !text.is_empty() {
-                    json_rec["chunk_text"] = serde_json::Value::String(text);
+            let chunk_text = match rec.get_item("chunk_text")? {
+                Some(text_obj) => {
+                    let text: String = text_obj.extract()?;
+                    if text.is_empty() { None } else { Some(text) }
                 }
-            }
+                None => None,
+            };
 
-            json_records.push(json_rec);
+            native_records.push(NativeRecord {
+                chunk_id,
+                doc_id,
+                vector: vector.into_iter().map(|v| v as f32).collect(),
+                metadata,
+                chunk_text,
+            });
         }
 
-        let result = inner.upsert_batch(collection_id, &json_records).map_err(to_py_err)?;
+        let result = inner.upsert_batch(collection_id, &native_records).map_err(to_py_err)?;
 
         let dict = PyDict::new(py);
         dict.set_item("segment_ids", &result.segment_ids)?;

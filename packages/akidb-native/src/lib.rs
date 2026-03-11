@@ -19,6 +19,7 @@ pub use crate::engine::{EngineInner, EngineOptions};
 pub use crate::error::AkiDbError;
 pub use crate::metadata::{Collection, Manifest};
 pub use crate::query::{SearchMode, SearchOptions};
+pub use crate::write::NativeRecord;
 #[doc(hidden)]
 pub mod bench_support {
     pub use crate::distance::{cosine_distance, dot_product, l2_distance, normalize};
