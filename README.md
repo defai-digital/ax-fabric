@@ -5,7 +5,8 @@ Enterprise offline knowledge fabric for grounded AI systems.
 [![Node.js >=22](https://img.shields.io/badge/node-%3E%3D22-brightgreen)](https://nodejs.org)
 [![Rust](https://img.shields.io/badge/rust-stable-orange)](https://www.rust-lang.org)
 [![pnpm](https://img.shields.io/badge/pnpm-10.22-blueviolet)](https://pnpm.io)
-[![Tests](https://img.shields.io/badge/tests-1011%20passing-brightgreen)](#testing)
+[![TS Tests](https://img.shields.io/badge/vitest-1011%20passing-brightgreen)](#typescript-tests-vitest)
+[![Rust Tests](https://img.shields.io/badge/cargo%20test-102%20passing-orange)](#rust-unit-tests-cargo)
 [![MCP Tools](https://img.shields.io/badge/MCP%20tools-23-blue)](#mcp-tools)
 [![License: AGPL-3.0](https://img.shields.io/badge/license-AGPL--3.0--or--later-blue)](LICENSE)
 
