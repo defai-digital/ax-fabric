@@ -281,6 +281,50 @@ describe("stageEmbed", () => {
   });
 });
 
+// ─── stageChunk (additional) ──────────────────────────────────────────────────
+
+describe("stageChunk — strategy selection", () => {
+  it("explicit 'markdown' strategy on a non-.md extension still chunks", () => {
+    const normalized = { normalizedText: "# Title\n\nSome paragraph text here." };
+    const file = makeScanResult({ sourcePath: "/docs/notes.txt", contentType: "txt" });
+    const result = stageChunk(normalized, file, { strategy: "markdown" });
+    expect(result).not.toBeNull();
+    expect(result!.chunks.length).toBeGreaterThan(0);
+  });
+
+  it("preserves docVersion equal to file fingerprint", () => {
+    const normalized = { normalizedText: "Content for version check." };
+    const file = makeScanResult({ fingerprint: "fp-versioned" });
+    const result = stageChunk(normalized, file);
+    expect(result!.docVersion).toBe("fp-versioned");
+  });
+});
+
+// ─── stageEmbed (additional) ──────────────────────────────────────────────────
+
+describe("stageEmbed — edge cases", () => {
+  it("handles zero chunks by returning EmbedOutput with empty vectors", async () => {
+    const chunked: ChunkOutput = { docId: "doc-x", docVersion: "fp-x", chunks: [] };
+    const embedder = makeMockEmbedder([]);
+    (embedder.embed as ReturnType<typeof vi.fn>).mockResolvedValue([]);
+    const result = await stageEmbed(chunked, embedder);
+    expect(result.vectors).toHaveLength(0);
+    expect(result.chunks).toHaveLength(0);
+  });
+
+  it("preserves docId and docVersion from ChunkOutput unchanged", async () => {
+    const chunked: ChunkOutput = {
+      docId: "stable-doc-id",
+      docVersion: "stable-version",
+      chunks: [{ chunkId: "c0", chunkHash: "h0", text: "text", offset: 0, label: "text" }],
+    };
+    const embedder = makeMockEmbedder([[0.1, 0.2]]);
+    const result = await stageEmbed(chunked, embedder);
+    expect(result.docId).toBe("stable-doc-id");
+    expect(result.docVersion).toBe("stable-version");
+  });
+});
+
 // ─── stageBuild ───────────────────────────────────────────────────────────────
 
 describe("stageBuild", () => {

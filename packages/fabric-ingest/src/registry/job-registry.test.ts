@@ -278,6 +278,46 @@ describe("JobRegistry", () => {
     expect((stateError as Error).message).toContain("Failed to load known file states");
   });
 
+  it("close() is idempotent — calling it twice does not throw", () => {
+    const reg = new JobRegistry(":memory:");
+    reg.close();
+    // Second call must be a no-op and not throw.
+    expect(() => reg.close()).not.toThrow();
+  });
+
+  it("wraps upsertFile and getFile native failures as STATE_ERROR", () => {
+    const reg = new JobRegistry(":memory:");
+    (reg as unknown as { native: unknown }).native = {
+      upsertFile: () => {
+        throw new Error("disk full");
+      },
+      getFile: () => {
+        throw new Error("corrupt db");
+      },
+      close: () => undefined,
+    };
+
+    let upsertError: unknown;
+    try {
+      reg.upsertFile(makeFileRecord());
+    } catch (error) {
+      upsertError = error;
+    }
+    expect(upsertError).toBeInstanceOf(AxFabricError);
+    expect((upsertError as Error).message).toContain("Failed to upsert file record");
+
+    let getError: unknown;
+    try {
+      reg.getFile("/docs/test.txt");
+    } catch (error) {
+      getError = error;
+    }
+    expect(getError).toBeInstanceOf(AxFabricError);
+    expect((getError as Error).message).toContain("Failed to load file record");
+
+    reg.close();
+  });
+
   it("wraps delete and close failures as STATE_ERROR", () => {
     (registry as unknown as { native: unknown }).native = {
       deleteFile: () => {

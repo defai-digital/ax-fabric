@@ -200,4 +200,88 @@ describe("BatchPublisher", () => {
     expect(result.manifestVersion).toBe(0);
     expect(publisher.getPendingCount()).toBe(0);
   });
+
+  it("groups tombstones by reason code and issues separate deleteChunks calls", async () => {
+    // First publish: ingest records to create chunks.
+    const setup = makePublisher();
+    await setup.addRecords(Array.from({ length: 4 }, (_, i) => makeRecord(i)));
+    await setup.publish();
+
+    // Second publish: mix file_deleted and file_updated tombstones.
+    const publisher = makePublisher();
+    publisher.addTombstones([
+      { chunk_id: "chunk-000", deleted_at: new Date().toISOString(), reason_code: "file_deleted" },
+      { chunk_id: "chunk-001", deleted_at: new Date().toISOString(), reason_code: "file_updated" },
+      { chunk_id: "chunk-002", deleted_at: new Date().toISOString(), reason_code: "file_deleted" },
+    ]);
+
+    // publish should succeed — both reason groups are applied.
+    const result = await publisher.publish();
+    expect(result.manifestVersion).toBe(1);
+
+    // Tombstoned chunks must not appear in search results.
+    const searchResult = await db.search({
+      collectionId: COL_ID,
+      queryVector: new Float32Array(Array.from({ length: DIM }, () => 0.5)),
+      topK: 20,
+    });
+    const returnedIds = searchResult.results.map((r) => r.chunkId);
+    expect(returnedIds).not.toContain("chunk-000");
+    expect(returnedIds).not.toContain("chunk-001");
+    expect(returnedIds).not.toContain("chunk-002");
+  });
+
+  it("accumulates tombstones across multiple addTombstones calls", async () => {
+    // Ingest some records first.
+    const setup = makePublisher();
+    await setup.addRecords(Array.from({ length: 3 }, (_, i) => makeRecord(i)));
+    await setup.publish();
+
+    const publisher = makePublisher();
+    // Two separate addTombstones calls should both be applied on publish.
+    publisher.addTombstones([makeTombstone("chunk-000")]);
+    publisher.addTombstones([makeTombstone("chunk-001")]);
+
+    const result = await publisher.publish();
+    expect(result.manifestVersion).toBe(1);
+
+    const searchResult = await db.search({
+      collectionId: COL_ID,
+      queryVector: new Float32Array(Array.from({ length: DIM }, () => 0.5)),
+      topK: 20,
+    });
+    const ids = searchResult.results.map((r) => r.chunkId);
+    expect(ids).not.toContain("chunk-000");
+    expect(ids).not.toContain("chunk-001");
+  });
+
+  it("publish with zero records but pending tombstones still publishes a manifest", async () => {
+    // Ingest records so there is something to tombstone.
+    const setup = makePublisher();
+    await setup.addRecords(Array.from({ length: 2 }, (_, i) => makeRecord(i)));
+    await setup.publish();
+
+    // New publisher: no records, but tombstones.
+    const publisher = makePublisher();
+    publisher.addTombstones([makeTombstone("chunk-000")]);
+
+    const result = await publisher.publish();
+    // manifest version increments regardless of record count.
+    expect(result.manifestVersion).toBe(1);
+    expect(result.segmentCount).toBe(0);
+  });
+
+  it("clears pending tombstones after a successful publish", async () => {
+    const setup = makePublisher();
+    await setup.addRecords(Array.from({ length: 2 }, (_, i) => makeRecord(i)));
+    await setup.publish();
+
+    const publisher = makePublisher();
+    publisher.addTombstones([makeTombstone("chunk-000")]);
+    await publisher.publish(); // first publish clears tombstones
+
+    // Second publish should produce manifest version 2 with no extra tombstone error.
+    const result = await publisher.publish();
+    expect(result.manifestVersion).toBe(2);
+  });
 });

@@ -153,4 +153,46 @@ describe("checkBudget", () => {
     const at95 = checkBudget(95 * 1024 * 1024 * 1024, maxGb);
     expect(at95.action).toBe("compact"); // 95 is not > 95
   });
+
+  it("always returns usedBytes unchanged in result", () => {
+    const used = 123456789;
+    const result = checkBudget(used, 10);
+    expect(result.usedBytes).toBe(used);
+  });
+
+  it("returns zero percent when usedBytes is 0", () => {
+    const result = checkBudget(0, 100);
+    expect(result.percent).toBe(0);
+    expect(result.action).toBe("normal");
+  });
+
+  it("returns 100% when usedBytes equals maxBytes", () => {
+    const maxGb = 10;
+    const maxBytes = maxGb * 1024 * 1024 * 1024;
+    const result = checkBudget(maxBytes, maxGb);
+    expect(result.percent).toBe(100);
+    expect(result.action).toBe("skip");
+  });
+
+  it("returns percent > 100 when usedBytes exceeds maxBytes", () => {
+    const maxGb = 10;
+    const maxBytes = maxGb * 1024 * 1024 * 1024;
+    const result = checkBudget(maxBytes * 1.5, maxGb);
+    expect(result.percent).toBeGreaterThan(100);
+    expect(result.action).toBe("skip");
+  });
+
+  it("returns 'compact' just above 85%", () => {
+    const maxGb = 100;
+    const usedBytes = 85.1 * 1024 * 1024 * 1024;
+    const result = checkBudget(usedBytes, maxGb);
+    expect(result.action).toBe("compact");
+  });
+
+  it("returns 'skip' just above 95%", () => {
+    const maxGb = 100;
+    const usedBytes = 95.1 * 1024 * 1024 * 1024;
+    const result = checkBudget(usedBytes, maxGb);
+    expect(result.action).toBe("skip");
+  });
 });

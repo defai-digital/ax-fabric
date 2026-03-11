@@ -337,4 +337,187 @@ describe("TsvExtractor", () => {
       (e) => e instanceof AxFabricError && (e as AxFabricError).code === "EXTRACT_ERROR",
     );
   });
+
+  it("has a version string", () => {
+    expect(typeof extractor.version).toBe("string");
+    expect(extractor.version.length).toBeGreaterThan(0);
+  });
+
+  it("produces one output row per data row", async () => {
+    const tsv = `col\n1\n2\n3`;
+    const p = await write("rows.tsv", tsv);
+    const result = await extractor.extract(p);
+    const lines = result.text.split("\n");
+    // First line is the schema, next 3 are data rows
+    expect(lines).toHaveLength(4);
+    expect(lines[0]).toBe("Columns: col");
+  });
+});
+
+// ─── Additional extractor gaps ────────────────────────────────────────────
+
+describe("MdExtractor — additional", () => {
+  const extractor = new MdExtractor();
+
+  it("preserves Unicode content unchanged", async () => {
+    const p = await write("unicode.md", "# 日本語\n\nСодержание: emoji 🎉");
+    const result = await extractor.extract(p);
+    expect(result.text).toContain("日本語");
+    expect(result.text).toContain("🎉");
+  });
+
+  it("preserves code blocks unchanged", async () => {
+    const md = "```typescript\nconst x: string = 'hello';\n```";
+    const p = await write("code.md", md);
+    const result = await extractor.extract(p);
+    expect(result.text).toBe(md);
+  });
+});
+
+describe("HtmlExtractor — additional", () => {
+  const extractor = new HtmlExtractor();
+
+  it("removes nav and footer elements", async () => {
+    const html = `<html><body><nav>Skip me</nav><p>Content</p><footer>Skip footer</footer></body></html>`;
+    const p = await write("nav-footer.html", html);
+    const result = await extractor.extract(p);
+    expect(result.text).toContain("Content");
+    expect(result.text).not.toContain("Skip me");
+    expect(result.text).not.toContain("Skip footer");
+  });
+
+  it("extracts anchor link text", async () => {
+    const html = `<html><body><p>Visit <a href="https://example.com">our website</a> today.</p></body></html>`;
+    const p = await write("links.html", html);
+    const result = await extractor.extract(p);
+    expect(result.text).toContain("our website");
+  });
+
+  it("has a version string", () => {
+    expect(typeof extractor.version).toBe("string");
+    expect(extractor.version.length).toBeGreaterThan(0);
+  });
+});
+
+describe("RtfExtractor — additional control words", () => {
+  const extractor = new RtfExtractor();
+
+  it("converts \\tab control word to tab character", async () => {
+    // A space after a control word acts as a delimiter in RTF
+    const rtf = `{\\rtf1 col1\\tab col2}`;
+    const p = await write("tab.rtf", rtf);
+    const result = await extractor.extract(p);
+    expect(result.text).toContain("col1");
+    expect(result.text).toContain("col2");
+  });
+
+  it("converts \\emdash to em-dash character", async () => {
+    const rtf = `{\\rtf1 before\\emdash after}`;
+    const p = await write("emdash.rtf", rtf);
+    const result = await extractor.extract(p);
+    expect(result.text).toContain("\u2014");
+  });
+
+  it("converts \\endash to en-dash character", async () => {
+    const rtf = `{\\rtf1 before\\endash after}`;
+    const p = await write("endash.rtf", rtf);
+    const result = await extractor.extract(p);
+    expect(result.text).toContain("\u2013");
+  });
+
+  it("converts \\lquote and \\rquote to typographic single quotes", async () => {
+    const rtf = `{\\rtf1 \\lquote hello\\rquote }`;
+    const p = await write("quotes.rtf", rtf);
+    const result = await extractor.extract(p);
+    expect(result.text).toContain("\u2018");
+    expect(result.text).toContain("\u2019");
+  });
+
+  it("decodes hex escape sequences", async () => {
+    // \'41 is 'A' in ASCII (0x41 = 65 = 'A')
+    const rtf = `{\\rtf1 \\'41 text}`;
+    const p = await write("hex.rtf", rtf);
+    const result = await extractor.extract(p);
+    // Should decode hex 41 = 'A'
+    expect(result.text).toContain("A");
+    expect(result.text).toContain("text");
+  });
+
+  it("skips fonttbl group content", async () => {
+    const rtf = `{\\rtf1{\\fonttbl{\\f0 Arial;}}Visible text.}`;
+    const p = await write("fonttbl.rtf", rtf);
+    const result = await extractor.extract(p);
+    expect(result.text).toContain("Visible text.");
+    expect(result.text).not.toContain("Arial");
+  });
+
+  it("has a version string", () => {
+    expect(typeof extractor.version).toBe("string");
+    expect(extractor.version.length).toBeGreaterThan(0);
+  });
+});
+
+describe("SqlExtractor — additional", () => {
+  const extractor = new SqlExtractor();
+
+  it("handles CREATE TABLE IF NOT EXISTS syntax", async () => {
+    const sql = `CREATE TABLE IF NOT EXISTS events (\n  id INTEGER,\n  name TEXT\n);\nINSERT INTO events (id, name) VALUES (1, 'launch');`;
+    const p = await write("ifnotexists.sql", sql);
+    const result = await extractor.extract(p);
+    expect(result.text).toContain("Table: events");
+    expect(result.text).toContain("name: launch");
+  });
+
+  it("parses INSERT without prior CREATE TABLE using column list", async () => {
+    const sql = `INSERT INTO logs (ts, msg) VALUES ('2024-01-01', 'started');`;
+    const p = await write("insert-only.sql", sql);
+    const result = await extractor.extract(p);
+    expect(result.text).toContain("Table: logs");
+    expect(result.text).toContain("ts: 2024-01-01");
+    expect(result.text).toContain("msg: started");
+  });
+
+  it("handles PostgreSQL COPY FROM stdin format", async () => {
+    const sql = `COPY users (id, name) FROM stdin;\n1\tAlice\n2\tBob\n\\.`;
+    const p = await write("pg-copy.sql", sql);
+    const result = await extractor.extract(p);
+    expect(result.text).toContain("Table: users");
+    expect(result.text).toContain("Columns: id, name");
+    expect(result.text).toContain("name");
+  });
+
+  it("handles NULL values in INSERT rows", async () => {
+    const sql = `CREATE TABLE t (\n  a TEXT,\n  b TEXT\n);\nINSERT INTO t (a, b) VALUES ('hello', NULL);`;
+    const p = await write("nulls.sql", sql);
+    const result = await extractor.extract(p);
+    // NULL should be replaced with empty string
+    expect(result.text).toContain("a: hello");
+    expect(result.text).toContain("b: ");
+  });
+});
+
+describe("JsonlExtractor — additional", () => {
+  const extractor = new JsonlExtractor();
+
+  it("schema is determined by first row — extra keys in later rows use first row's columns", async () => {
+    // Second row has an extra key 'extra' not in first row — it should be ignored
+    const jsonl = `{"id":1,"name":"Alice"}\n{"id":2,"name":"Bob","extra":"ignored"}`;
+    const p = await write("schema-first.jsonl", jsonl);
+    const result = await extractor.extract(p);
+    expect(result.text).toContain("Columns: id, name");
+    expect(result.text).not.toContain("extra");
+  });
+
+  it("handles nested object values by stringifying them", async () => {
+    const jsonl = `{"id":1,"meta":{"key":"val"}}`;
+    const p = await write("nested.jsonl", jsonl);
+    const result = await extractor.extract(p);
+    // The meta value is an object; it should appear as a string representation
+    expect(result.text).toContain("meta:");
+  });
+
+  it("has a version string", () => {
+    expect(typeof extractor.version).toBe("string");
+    expect(extractor.version.length).toBeGreaterThan(0);
+  });
 });

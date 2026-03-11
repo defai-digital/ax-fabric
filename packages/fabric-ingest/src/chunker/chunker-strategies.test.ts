@@ -223,3 +223,108 @@ describe("getStrategy", () => {
     expect(getStrategy("fixed").name).toBe("fixed");
   });
 });
+
+// ─── FixedSizeChunker ──────────────────────────────────────────────────────
+
+import { FixedSizeChunker } from "./fixed.js";
+
+describe("FixedSizeChunker", () => {
+  const chunker = new FixedSizeChunker();
+
+  it("has name 'fixed'", () => {
+    expect(chunker.name).toBe("fixed");
+  });
+
+  it("returns empty array for empty text", () => {
+    expect(chunker.chunk("", OPTS)).toEqual([]);
+  });
+
+  it("returns a single chunk for text shorter than maxChunkSize", () => {
+    const text = "Short text.";
+    const chunks = chunker.chunk(text, OPTS);
+    expect(chunks).toHaveLength(1);
+    expect(chunks[0]!.text).toBe(text);
+    expect(chunks[0]!.offset).toBe(0);
+  });
+
+  it("returns a single chunk when text equals maxChunkSize exactly", () => {
+    const text = "x".repeat(OPTS.maxChunkSize);
+    const chunks = chunker.chunk(text, OPTS);
+    expect(chunks).toHaveLength(1);
+    expect(chunks[0]!.text).toBe(text);
+  });
+
+  it("all chunks have label 'text'", () => {
+    const text = "word ".repeat(200);
+    const chunks = chunker.chunk(text, OPTS);
+    for (const c of chunks) {
+      expect(c.label).toBe("text");
+    }
+  });
+
+  it("produces multiple chunks for text longer than maxChunkSize", () => {
+    const text = "a".repeat(OPTS.maxChunkSize * 3);
+    const chunks = chunker.chunk(text, OPTS);
+    expect(chunks.length).toBeGreaterThan(1);
+  });
+
+  it("all chunk offsets are non-negative", () => {
+    const text = "word ".repeat(200);
+    const chunks = chunker.chunk(text, OPTS);
+    for (const c of chunks) {
+      expect(c.offset).toBeGreaterThanOrEqual(0);
+    }
+  });
+
+  it("last chunk ends at the end of the source text", () => {
+    const text = "Hello world. ".repeat(50);
+    const chunks = chunker.chunk(text, OPTS);
+    const last = chunks[chunks.length - 1]!;
+    expect(last.offset + last.text.length).toBe(text.length);
+  });
+
+  it("consecutive chunks overlap when overlap > 0", () => {
+    const text = "word ".repeat(300);
+    const opts = { maxChunkSize: 100, overlap: 20 };
+    const chunks = chunker.chunk(text, opts);
+    expect(chunks.length).toBeGreaterThan(1);
+    for (let i = 1; i < chunks.length; i++) {
+      const prevEnd = chunks[i - 1]!.offset + chunks[i - 1]!.text.length;
+      // With overlap, the next chunk starts before the previous one ends
+      expect(chunks[i]!.offset).toBeLessThan(prevEnd);
+    }
+  });
+
+  it("chunks are deterministic — same input gives same output", () => {
+    const text = "The quick brown fox jumps over the lazy dog. ".repeat(30);
+    const first = chunker.chunk(text, OPTS);
+    const second = chunker.chunk(text, OPTS);
+    expect(first.length).toBe(second.length);
+    for (let i = 0; i < first.length; i++) {
+      expect(first[i]!.text).toBe(second[i]!.text);
+      expect(first[i]!.offset).toBe(second[i]!.offset);
+    }
+  });
+
+  it("handles text with no natural break points (hard cut)", () => {
+    const text = "abcdefghij".repeat(100);
+    const opts = { maxChunkSize: 50, overlap: 5 };
+    const chunks = chunker.chunk(text, opts);
+    expect(chunks.length).toBeGreaterThan(1);
+    for (const c of chunks) {
+      expect(c.text.length).toBeGreaterThan(0);
+    }
+  });
+
+  it("zero overlap produces non-overlapping chunks", () => {
+    const text = "x".repeat(200);
+    const opts = { maxChunkSize: 50, overlap: 0 };
+    const chunks = chunker.chunk(text, opts);
+    expect(chunks.length).toBeGreaterThan(1);
+    for (let i = 1; i < chunks.length; i++) {
+      const prev = chunks[i - 1]!;
+      // With zero overlap, next chunk starts at or after prev end
+      expect(chunks[i]!.offset).toBeGreaterThanOrEqual(prev.offset + prev.text.length);
+    }
+  });
+});

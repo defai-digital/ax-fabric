@@ -88,4 +88,74 @@ describe("MemoryStore", () => {
       text: "Updated text",
     });
   });
+
+  it("defaults kind to 'short-term' when not specified", () => {
+    const store = makeStore();
+    const record = store.put({ sessionId: "s1", text: "No explicit kind" });
+    expect(record.kind).toBe("short-term");
+  });
+
+  it("delete returns false for a non-existent id", () => {
+    const store = makeStore();
+    expect(store.delete("does-not-exist")).toBe(false);
+  });
+
+  it("list without options returns all records across sessions", () => {
+    const store = makeStore();
+    store.put({ sessionId: "s1", text: "Alpha" });
+    store.put({ sessionId: "s2", text: "Beta" });
+    store.put({ sessionId: "s3", text: "Gamma" });
+
+    expect(store.list()).toHaveLength(3);
+  });
+
+  it("list with limit returns only the last N records ordered by createdAt", () => {
+    const store = makeStore();
+    store.put({ sessionId: "s1", text: "First" });
+    store.put({ sessionId: "s1", text: "Second" });
+    store.put({ sessionId: "s1", text: "Third" });
+    store.put({ sessionId: "s1", text: "Fourth" });
+
+    const limited = store.list({ sessionId: "s1", limit: 2 });
+    expect(limited).toHaveLength(2);
+    // The limit keeps the LAST N by insertion order (oldest entries are dropped).
+    expect(limited[1]!.text).toBe("Fourth");
+  });
+
+  it("get returns null for a non-existent id on a missing file", () => {
+    const store = makeStore();
+    // No file written yet — store.get() should return null, not throw.
+    expect(store.get("phantom-id")).toBeNull();
+  });
+
+  it("list returns empty array when file does not exist yet", () => {
+    const store = makeStore();
+    expect(store.list()).toEqual([]);
+  });
+
+  it("filters records by workflowId", () => {
+    const store = makeStore();
+    store.put({ sessionId: "s1", workflowId: "wf-a", text: "Workflow A record" });
+    store.put({ sessionId: "s1", workflowId: "wf-b", text: "Workflow B record" });
+    store.put({ sessionId: "s1", text: "No workflow" });
+
+    expect(store.list({ workflowId: "wf-a" })).toHaveLength(1);
+    expect(store.list({ workflowId: "wf-a" })[0]!.text).toBe("Workflow A record");
+  });
+
+  it("assembleContext uses a custom separator", () => {
+    const store = makeStore();
+    store.put({ sessionId: "s1", text: "Part one" });
+    store.put({ sessionId: "s1", text: "Part two" });
+
+    const result = store.assembleContext({ sessionId: "s1", separator: " | " });
+    expect(result.text).toBe("Part one | Part two");
+  });
+
+  it("assembleContext returns empty text when no records match", () => {
+    const store = makeStore();
+    const result = store.assembleContext({ sessionId: "nonexistent" });
+    expect(result.entries).toHaveLength(0);
+    expect(result.text).toBe("");
+  });
 });

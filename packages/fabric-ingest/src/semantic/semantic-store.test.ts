@@ -274,6 +274,131 @@ describe("SemanticStore", () => {
     }
   });
 
+  it("hasPublishedCollection returns false when no bundle is published to that collection", async () => {
+    const workdir = mkdtempSync(join(tmpdir(), "semantic-store-hpc-false-"));
+    const dbPath = join(workdir, "semantic.db");
+
+    try {
+      const store = new SemanticStore(dbPath);
+      expect(store.hasPublishedCollection("nonexistent-collection")).toBe(false);
+      store.close();
+    } finally {
+      rmSync(workdir, { recursive: true, force: true });
+    }
+  });
+
+  it("hasPublishedCollection returns true once a bundle is marked published", async () => {
+    const workdir = mkdtempSync(join(tmpdir(), "semantic-store-hpc-true-"));
+    const dbPath = join(workdir, "semantic.db");
+    const filePath = join(workdir, "doc.txt");
+    writeFileSync(filePath, "Content for hasPublishedCollection check.", "utf8");
+
+    try {
+      const engine = new SemanticReviewEngine();
+      const bundle = await engine.createBundle(filePath);
+      const store = new SemanticStore(dbPath);
+      store.upsertBundle(bundle);
+
+      expect(store.hasPublishedCollection("col-a")).toBe(false);
+
+      store.markPublished(bundle.bundle_id, {
+        collectionId: "col-a",
+        manifestVersion: 0,
+        publishedAt: new Date().toISOString(),
+      });
+
+      expect(store.hasPublishedCollection("col-a")).toBe(true);
+      expect(store.hasPublishedCollection("col-b")).toBe(false);
+      store.close();
+    } finally {
+      rmSync(workdir, { recursive: true, force: true });
+    }
+  });
+
+  it("getStoredBundle returns null for a non-existent bundle id", () => {
+    const workdir = mkdtempSync(join(tmpdir(), "semantic-store-null-stored-"));
+    const dbPath = join(workdir, "semantic.db");
+
+    try {
+      const store = new SemanticStore(dbPath);
+      expect(store.getStoredBundle("no-such-bundle")).toBeNull();
+      store.close();
+    } finally {
+      rmSync(workdir, { recursive: true, force: true });
+    }
+  });
+
+  it("listBundles returns empty array when no bundles exist", () => {
+    const workdir = mkdtempSync(join(tmpdir(), "semantic-store-empty-list-"));
+    const dbPath = join(workdir, "semantic.db");
+
+    try {
+      const store = new SemanticStore(dbPath);
+      expect(store.listBundles()).toEqual([]);
+      store.close();
+    } finally {
+      rmSync(workdir, { recursive: true, force: true });
+    }
+  });
+
+  it("updateReview changes the review status of an existing bundle", async () => {
+    const workdir = mkdtempSync(join(tmpdir(), "semantic-store-update-review-"));
+    const dbPath = join(workdir, "semantic.db");
+    const filePath = join(workdir, "doc.txt");
+    writeFileSync(filePath, "Content for updateReview test.", "utf8");
+
+    try {
+      const engine = new SemanticReviewEngine();
+      const bundle = await engine.createBundle(filePath);
+      const store = new SemanticStore(dbPath);
+      store.upsertBundle(bundle);
+
+      // Initially pending.
+      expect(store.getBundle(bundle.bundle_id)?.review?.status ?? "pending").toBe("pending");
+
+      const updated = store.updateReview(bundle.bundle_id, {
+        status: "approved",
+        reviewer: "tester",
+        reviewed_at: new Date().toISOString(),
+        min_quality_score: 0.1,
+        duplicate_policy: "warn",
+        blocking_issues: [],
+      });
+
+      expect(updated.review?.status).toBe("approved");
+      expect(updated.review?.reviewer).toBe("tester");
+
+      // Persisted.
+      const stored = store.getStoredBundle(bundle.bundle_id);
+      expect(stored?.bundle.review?.status).toBe("approved");
+      store.close();
+    } finally {
+      rmSync(workdir, { recursive: true, force: true });
+    }
+  });
+
+  it("updateReview throws when bundle does not exist", () => {
+    const workdir = mkdtempSync(join(tmpdir(), "semantic-store-update-review-missing-"));
+    const dbPath = join(workdir, "semantic.db");
+
+    try {
+      const store = new SemanticStore(dbPath);
+      expect(() =>
+        store.updateReview("no-such-bundle", {
+          status: "approved",
+          reviewer: "tester",
+          reviewed_at: new Date().toISOString(),
+          min_quality_score: 0.1,
+          duplicate_policy: "warn",
+          blocking_issues: [],
+        }),
+      ).toThrow(/not found/);
+      store.close();
+    } finally {
+      rmSync(workdir, { recursive: true, force: true });
+    }
+  });
+
   it("clears publication state explicitly", async () => {
     const workdir = mkdtempSync(join(tmpdir(), "semantic-store-clear-published-"));
     const dbPath = join(workdir, "semantic.db");

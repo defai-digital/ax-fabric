@@ -106,4 +106,40 @@ describe("normalize", () => {
     // "a   \n   b" -> (collapse spaces) "a \n b"
     expect(normalize("a   \n   b")).toBe("a \n b");
   });
+
+  it("is idempotent — normalizing twice gives the same result", () => {
+    const inputs = [
+      "  Hello\r\n\tWorld\n\n\n  Foo  ",
+      "a\t\tb\r\nc\r\nd",
+      "e\u0301 test",
+    ];
+    for (const input of inputs) {
+      const once = normalize(input);
+      const twice = normalize(once);
+      expect(twice).toBe(once);
+    }
+  });
+
+  it("handles only-tabs input", () => {
+    expect(normalize("\t\t\t")).toBe("");
+  });
+
+  it("collapses mixed tabs and spaces into single space", () => {
+    // tab -> space, then multiple spaces -> one space
+    expect(normalize("a\t  \tb")).toBe("a b");
+  });
+
+  it("preserves exactly two newlines (does not collapse double newlines)", () => {
+    // Two consecutive newlines should be preserved unchanged
+    expect(normalize("x\n\ny")).toBe("x\n\ny");
+  });
+
+  it("collapses exactly 3 newlines to 2", () => {
+    expect(normalize("x\n\n\ny")).toBe("x\n\ny");
+  });
+
+  it("handles CRLF followed by CR", () => {
+    // \r\n -> \n, standalone \r -> \n: "a\r\n\rb" -> "a\n\nb"
+    expect(normalize("a\r\n\rb")).toBe("a\n\nb");
+  });
 });
