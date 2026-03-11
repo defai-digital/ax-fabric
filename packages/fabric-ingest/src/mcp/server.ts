@@ -2,7 +2,7 @@
  * MCP server entry point — ADR-028/029.
  *
  * Launches the ax-fabric MCP server with stdio transport.
- * Registers all 19 tools (9 akidb_* + 10 fabric_*) and 5 resources.
+ * Registers all 23 tools (9 akidb_* + 10 fabric_* + 4 fabric_memory_*) and 5 resources.
  */
 
 import { join } from "node:path";
@@ -67,7 +67,7 @@ export function createMcpServer(options?: McpServerOptions): {
 
   // Register all tools
   registerAkiDbTools(server, db);
-  registerFabricTools(server, { db, embedder, config, registryDbPath });
+  registerFabricTools(server, { db, embedder, config, registryDbPath, memoryStorePath: join(dataRoot, "memory.json") });
 
   // Register all resources
   registerResources(server, { db, config, registryDbPath });

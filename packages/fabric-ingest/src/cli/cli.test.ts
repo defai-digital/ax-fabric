@@ -1145,5 +1145,46 @@ describe("CLI commands", () => {
       expect(parsed.id).toBeTruthy();
       expect(deleteOutput).toContain("Deleted memory");
     });
+
+    it("supports show, list --json, and assemble --json", async () => {
+      const memoryProgram = new Command();
+      memoryProgram.exitOverride();
+      registerMemoryCommand(memoryProgram);
+
+      const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+
+      // Put two records
+      await memoryProgram.parseAsync(["node", "test", "memory", "put", "--session", "session-3", "--text", "First context fact", "--json"]);
+      const firstId = (JSON.parse(logSpy.mock.calls.map((c) => c.join(" ")).join("\n")) as { id: string }).id;
+      logSpy.mockClear();
+
+      await memoryProgram.parseAsync(["node", "test", "memory", "put", "--session", "session-3", "--kind", "long-term", "--text", "Second long-term fact", "--json"]);
+      logSpy.mockClear();
+
+      // show
+      await memoryProgram.parseAsync(["node", "test", "memory", "show", firstId, "--json"]);
+      const showOutput = logSpy.mock.calls.map((c) => c.join(" ")).join("\n");
+      logSpy.mockClear();
+      const showParsed = JSON.parse(showOutput) as { id: string; text: string };
+      expect(showParsed.id).toBe(firstId);
+      expect(showParsed.text).toBe("First context fact");
+
+      // list --json
+      await memoryProgram.parseAsync(["node", "test", "memory", "list", "--session", "session-3", "--json"]);
+      const listOutput = logSpy.mock.calls.map((c) => c.join(" ")).join("\n");
+      logSpy.mockClear();
+      const listParsed = JSON.parse(listOutput) as { records: Array<{ kind: string }> };
+      expect(listParsed.records).toHaveLength(2);
+      expect(listParsed.records.some((r) => r.kind === "long-term")).toBe(true);
+
+      // assemble --json
+      await memoryProgram.parseAsync(["node", "test", "memory", "assemble", "--session", "session-3", "--json"]);
+      const assembleOutput = logSpy.mock.calls.map((c) => c.join(" ")).join("\n");
+      logSpy.mockRestore();
+      const assembleParsed = JSON.parse(assembleOutput) as { text: string; entries: unknown[] };
+      expect(assembleParsed.entries).toHaveLength(2);
+      expect(assembleParsed.text).toContain("First context fact");
+      expect(assembleParsed.text).toContain("Second long-term fact");
+    });
   });
 });

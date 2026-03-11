@@ -45,7 +45,7 @@ Most AI retrieval stacks require a managed cloud vector database, a separate BM2
 - **No lock-in** — data and config live at `~/.ax-fabric` and follow your machine.
 - **Incremental** — only changed files are re-processed; unchanged files are always skipped.
 - **Three search modes** — vector (HNSW ANN), keyword (BM25 via FTS5), and hybrid (RRF fusion).
-- **MCP-native** — 19 tools over stdio for direct AI agent integration without a REST server.
+- **MCP-native** — 23 tools over stdio for direct AI agent integration without a REST server.
 - **Offline-first by default** — your knowledge stays in your environment unless you choose an external embedding provider.
 
 ## Where AX Fabric Fits
@@ -110,7 +110,7 @@ Jump to: [OSS](#oss) | [Business](#business) | [Enterprise](#enterprise)
 | 15-format document extractors | Yes | Yes | Yes |
 | Incremental, idempotent ingestion | Yes | Yes | Yes |
 | Continuous daemon mode | Yes | Yes | Yes |
-| MCP server (19 tools) | Yes | Yes | Yes |
+| MCP server (23 tools) | Yes | Yes | Yes |
 | Python bindings (PyO3) | Yes | Yes | Yes |
 | FP16 and SQ8 quantization | Yes | Yes | Yes |
 | Metadata filters and explain output | Yes | Yes | Yes |
@@ -170,7 +170,7 @@ Enterprise and license enquiries: `enquiry@automatosx.com`
 | Incremental, idempotent ingestion pipeline | ✅ |
 | 15-format document extractors | ✅ |
 | Continuous daemon mode with `SIGHUP` config reload | ✅ |
-| MCP server (19 tools, bearer token auth) | ✅ |
+| MCP server (23 tools, bearer token auth) | ✅ |
 | Python bindings (PyO3 + maturin) | ✅ |
 | Metadata filters (`$gt`, `$gte`, `$lt`, `$lte`, `$ne`, `$in`, `$nin`) | ✅ |
 | Per-query explain output (scores, ranks, chunk preview) | ✅ |
@@ -347,6 +347,7 @@ await db.close();
 |---|---|---|
 | `akidb_*` | 9 | Create / list / delete collections, upsert, search, compact, stats |
 | `fabric_*` | 10 | Ingest run / diff / status, daemon control, search with mode |
+| `fabric_memory_*` | 4 | Put / list / assemble / delete session and workflow memory records |
 
 ---
 
@@ -367,7 +368,7 @@ Embedder API keys use env-var indirection in `config.yaml`. Set `api_key_env: MY
 ```bash
 pnpm install
 pnpm build        # build all packages
-pnpm test         # vitest run (1000 TypeScript tests across 50 test files)
+pnpm test         # vitest run (1009 TypeScript tests across 51 test files)
 pnpm lint         # eslint packages/
 pnpm typecheck    # tsc -b
 
@@ -389,7 +390,7 @@ AX Fabric has two independent test layers that run together in CI on every push 
 
 ### TypeScript tests (vitest)
 
-1000 tests across 50 test files, covering the full product stack:
+1009 tests across 51 test files, covering the full product stack:
 
 | Layer | What is tested |
 |---|---|

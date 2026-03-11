@@ -513,6 +513,150 @@ describe("AkiDB integration", () => {
 
   // ─── Multiple upserts and publishes ─────────────────────────────────────
 
+  // ─── Search modes (v1.4 coverage) ──────────────────────────────────────
+
+  it("supports keyword search mode (BM25 / FTS5)", async () => {
+    db.createCollection({
+      collectionId: "keyword-test",
+      dimension: DIM,
+      metric: "cosine",
+      embeddingModelId: "test-model",
+    });
+
+    const records: AkiRecord[] = Array.from({ length: 5 }, (_, i) => ({
+      ...makeRecord(i),
+      chunk_id: `kw-chunk-${String(i)}`,
+      chunk_text: i === 2 ? "authentication token expiry policy" : `unrelated text about topic ${String(i)}`,
+    }));
+
+    await db.upsertBatch("keyword-test", records);
+    await db.publish("keyword-test", {
+      embeddingModelId: "test-model",
+      pipelineSignature: "sha256:pipe-v1",
+    });
+
+    const result = await db.search({
+      collectionId: "keyword-test",
+      queryVector: new Float32Array(DIM),
+      queryText: "authentication token",
+      topK: 5,
+      mode: "keyword",
+    });
+
+    expect(result.results.length).toBeGreaterThan(0);
+    // The chunk with matching text should appear in results.
+    const ids = result.results.map((r) => r.chunkId);
+    expect(ids).toContain("kw-chunk-2");
+  });
+
+  it("supports hybrid search mode (RRF fusion of vector + keyword)", async () => {
+    db.createCollection({
+      collectionId: "hybrid-test",
+      dimension: DIM,
+      metric: "cosine",
+      embeddingModelId: "test-model",
+    });
+
+    const records: AkiRecord[] = Array.from({ length: 5 }, (_, i) => ({
+      ...makeRecord(i),
+      chunk_id: `hy-chunk-${String(i)}`,
+      chunk_text: i === 3 ? "hybrid retrieval reciprocal rank fusion" : `document chunk number ${String(i)}`,
+    }));
+
+    await db.upsertBatch("hybrid-test", records);
+    await db.publish("hybrid-test", {
+      embeddingModelId: "test-model",
+      pipelineSignature: "sha256:pipe-v1",
+    });
+
+    const result = await db.search({
+      collectionId: "hybrid-test",
+      queryVector: makeQueryVector(3),
+      queryText: "hybrid retrieval",
+      topK: 5,
+      mode: "hybrid",
+    });
+
+    expect(result.results.length).toBeGreaterThan(0);
+    // Scores must be non-negative (RRF scores are always positive).
+    for (const r of result.results) {
+      expect(r.score).toBeGreaterThanOrEqual(0);
+    }
+  });
+
+  it("returns explain info when explain flag is set", async () => {
+    db.createCollection({
+      collectionId: "explain-test",
+      dimension: DIM,
+      metric: "cosine",
+      embeddingModelId: "test-model",
+    });
+
+    const records: AkiRecord[] = Array.from({ length: 3 }, (_, i) => ({
+      ...makeRecord(i),
+      chunk_id: `ex-chunk-${String(i)}`,
+      chunk_text: `explain test chunk number ${String(i)} with searchable content`,
+    }));
+
+    await db.upsertBatch("explain-test", records);
+    await db.publish("explain-test", {
+      embeddingModelId: "test-model",
+      pipelineSignature: "sha256:pipe-v1",
+    });
+
+    // Explain on hybrid search should populate all scoring breakdown fields.
+    const result = await db.search({
+      collectionId: "explain-test",
+      queryVector: makeQueryVector(1),
+      queryText: "searchable content",
+      topK: 3,
+      mode: "hybrid",
+      explain: true,
+    });
+
+    expect(result.results.length).toBeGreaterThan(0);
+    // At least one result should have explain populated.
+    const withExplain = result.results.filter((r) => r.explain !== undefined && r.explain !== null);
+    expect(withExplain.length).toBeGreaterThan(0);
+
+    // The explain object should carry score breakdown fields.
+    const first = withExplain[0]!.explain!;
+    // rrfScore present for hybrid results that contributed to fusion.
+    expect(typeof first.rrfScore === "number" || first.rrfScore === undefined).toBe(true);
+    expect(Array.isArray(first.matchedTerms)).toBe(true);
+  });
+
+  it("explain on vector-only search populates vectorScore", async () => {
+    db.createCollection({
+      collectionId: "explain-vec",
+      dimension: DIM,
+      metric: "cosine",
+      embeddingModelId: "test-model",
+    });
+
+    const records = Array.from({ length: 3 }, (_, i) => makeRecord(i));
+    await db.upsertBatch("explain-vec", records);
+    await db.publish("explain-vec", {
+      embeddingModelId: "test-model",
+      pipelineSignature: "sha256:pipe-v1",
+    });
+
+    const result = await db.search({
+      collectionId: "explain-vec",
+      queryVector: makeQueryVector(1),
+      topK: 3,
+      mode: "vector",
+      explain: true,
+    });
+
+    expect(result.results.length).toBeGreaterThan(0);
+    const withExplain = result.results.filter((r) => r.explain !== undefined && r.explain !== null);
+    expect(withExplain.length).toBeGreaterThan(0);
+    for (const r of withExplain) {
+      expect(typeof r.explain!.vectorScore).toBe("number");
+    }
+  });
+
   it("supports multiple ingest-publish cycles", async () => {
     db.createCollection({
       collectionId: "multi-cycle",

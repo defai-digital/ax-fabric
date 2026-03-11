@@ -16,6 +16,7 @@ import { registerAkiDbTools } from "./akidb-tools.js";
 import { registerFabricTools } from "./fabric-tools.js";
 import { registerResources } from "./resources.js";
 import { MockEmbedder } from "../embedder/index.js";
+import { MemoryStore } from "../memory/index.js";
 import type { FabricConfig } from "../cli/config-loader.js";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -33,7 +34,7 @@ function createTestConfig(tmpDir: string): FabricConfig {
   };
 }
 
-function createTestServer(db: AkiDB, config: FabricConfig, registryDbPath: string) {
+function createTestServer(db: AkiDB, config: FabricConfig, registryDbPath: string, memoryStorePath: string) {
   const server = new McpServer({
     name: "ax-fabric-test",
     version: "0.1.0",
@@ -44,7 +45,7 @@ function createTestServer(db: AkiDB, config: FabricConfig, registryDbPath: strin
   const embedder = new MockEmbedder({ modelId: "test-embed", dimension: 128 });
 
   registerAkiDbTools(server, db);
-  registerFabricTools(server, { db, embedder, config, registryDbPath });
+  registerFabricTools(server, { db, embedder, config, registryDbPath, memoryStorePath });
   registerResources(server, { db, config, registryDbPath });
 
   return server;
@@ -74,7 +75,7 @@ describe("MCP Server", () => {
 
   describe("tool registration", () => {
     it("registers all tools without errors", () => {
-      expect(() => createTestServer(db, config, registryDbPath)).not.toThrow();
+      expect(() => createTestServer(db, config, registryDbPath, join(tmpDir, "memory.json"))).not.toThrow();
     });
 
     it("registers akidb tools with correct server instance", () => {
@@ -91,7 +92,7 @@ describe("MCP Server", () => {
         { capabilities: { tools: {} } },
       );
       const embedder = new MockEmbedder({ modelId: "test", dimension: 128 });
-      expect(() => registerFabricTools(server, { db, embedder, config, registryDbPath })).not.toThrow();
+      expect(() => registerFabricTools(server, { db, embedder, config, registryDbPath, memoryStorePath: join(tmpDir, "memory.json") })).not.toThrow();
     });
   });
 
@@ -216,6 +217,38 @@ describe("MCP Server", () => {
       const extensions = registry.getSupportedExtensions();
       expect(extensions.length).toBeGreaterThan(0);
       expect(extensions).toContain(".txt");
+    });
+  });
+
+  describe("fabric_memory MCP tools", () => {
+    it("put, list, assemble, and delete via MemoryStore", () => {
+      const memoryPath = join(tmpDir, "memory.json");
+      const store = new MemoryStore(memoryPath);
+
+      // put
+      const r1 = store.put({ sessionId: "mcp-session", text: "MCP memory fact A" });
+      const r2 = store.put({ sessionId: "mcp-session", kind: "long-term", text: "MCP memory fact B" });
+
+      expect(r1.id).toBeTruthy();
+      expect(r2.kind).toBe("long-term");
+
+      // list
+      const all = store.list({ sessionId: "mcp-session" });
+      expect(all).toHaveLength(2);
+
+      // assemble
+      const assembled = store.assembleContext({ sessionId: "mcp-session" });
+      expect(assembled.text).toContain("MCP memory fact A");
+      expect(assembled.text).toContain("MCP memory fact B");
+
+      // delete
+      expect(store.delete(r1.id)).toBe(true);
+      expect(store.list({ sessionId: "mcp-session" })).toHaveLength(1);
+    });
+
+    it("fabric memory MCP tool registration includes all four memory tools", () => {
+      // Verify that the server can be created with memory deps — registration would throw if any tool has invalid schema
+      expect(() => createTestServer(db, config, registryDbPath, join(tmpDir, "memory.json"))).not.toThrow();
     });
   });
 

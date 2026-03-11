@@ -57,7 +57,7 @@ async function setupE2e() {
   );
 
   registerAkiDbTools(server, db);
-  registerFabricTools(server, { db, embedder, config, registryDbPath });
+  registerFabricTools(server, { db, embedder, config, registryDbPath, memoryStorePath: join(tmpDir, "memory.json") });
   registerResources(server, { db, config, registryDbPath });
 
   // Create linked in-memory transports
@@ -98,8 +98,8 @@ describe("MCP E2E", () => {
     const result = await client.listTools();
     const toolNames = result.tools.map((t) => t.name).sort();
 
-    // Should have all 19 tools (9 akidb + 10 fabric)
-    expect(toolNames.length).toBe(19);
+    // Should have all 23 tools (9 akidb + 10 fabric + 4 fabric_memory)
+    expect(toolNames.length).toBe(23);
     expect(toolNames).toContain("akidb_create_collection");
     expect(toolNames).toContain("akidb_search");
     expect(toolNames).toContain("fabric_search");

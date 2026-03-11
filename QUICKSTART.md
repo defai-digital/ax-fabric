@@ -219,6 +219,7 @@ Available tool groups:
 |---|---|---|
 | `akidb_*` | 9 | Create / list / delete collections, upsert, search, compact, stats |
 | `fabric_*` | 10 | Ingest run / diff / status, daemon control, search with mode |
+| `fabric_memory_*` | 4 | Put / list / assemble / delete session and workflow memory records |
 
 Claude Desktop config:
 
