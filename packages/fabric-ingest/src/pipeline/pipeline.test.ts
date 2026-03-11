@@ -248,8 +248,8 @@ describe("Pipeline", () => {
     const metrics = await pipeline.run([sourceDir]);
     pipeline.close();
 
-    expect(metrics.filesScanned).toBe(1); // only .txt
-    expect(metrics.filesAdded).toBe(1);
+    expect(metrics.filesScanned).toBe(2); // .txt and .md; .png is unsupported
+    expect(metrics.filesAdded).toBe(2);
   });
 
   it("handles nested directory structures", async () => {

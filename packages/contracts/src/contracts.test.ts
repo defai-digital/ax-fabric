@@ -44,7 +44,7 @@ describe("RecordMetadataSchema", () => {
   });
 
   it("accepts all supported content_type values", () => {
-    const types = ["txt", "pdf", "docx", "pptx", "xlsx", "csv", "json", "yaml"] as const;
+    const types = ["txt", "md", "pdf", "docx", "pptx", "xlsx", "csv", "json", "yaml"] as const;
     for (const content_type of types) {
       expect(() => RecordMetadataSchema.parse({ ...valid, content_type })).not.toThrow();
     }

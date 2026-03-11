@@ -345,30 +345,6 @@ export class SemanticStore {
     this.db.close();
   }
 
-  private getBundleState(bundleId: string): {
-    publishedCollectionId: string | null;
-    publishedManifestVersion: number | null;
-    publishedAt: string | null;
-  } | null {
-    const row = this.db.prepare(`
-      SELECT
-        published_collection_id,
-        published_manifest_version,
-        published_at
-      FROM semantic_bundles
-      WHERE bundle_id = ?
-    `).get(bundleId) as Record<string, unknown> | undefined;
-
-    if (!row) return null;
-    return {
-      publishedCollectionId:
-        row["published_collection_id"] === null ? null : String(row["published_collection_id"]),
-      publishedManifestVersion:
-        row["published_manifest_version"] === null ? null : Number(row["published_manifest_version"]),
-      publishedAt: row["published_at"] === null ? null : String(row["published_at"]),
-    };
-  }
-
   private toPublicationState(row: Record<string, unknown>): SemanticPublicationState | null {
     if (row["published_collection_id"] === null) {
       return null;

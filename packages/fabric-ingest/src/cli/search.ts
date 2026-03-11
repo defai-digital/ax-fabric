@@ -500,8 +500,8 @@ function hasPublishedSemanticCollection(dataRoot: string, semanticCollectionId: 
 }
 
 function validateContentType(value: string): void {
-  if (!["txt", "pdf", "docx", "pptx", "xlsx", "csv", "json", "yaml"].includes(value)) {
-    throw new Error("--content-type must be one of: txt, pdf, docx, pptx, xlsx, csv, json, yaml");
+  if (!["txt", "md", "pdf", "docx", "pptx", "xlsx", "csv", "json", "yaml"].includes(value)) {
+    throw new Error("--content-type must be one of: txt, md, pdf, docx, pptx, xlsx, csv, json, yaml");
   }
 }
 
@@ -569,7 +569,7 @@ function setSemanticLookup(
 function guessContentType(sourcePath: string): string {
   const ext = sourcePath.split(".").pop()?.toLowerCase() ?? "";
   const map: Record<string, string> = {
-    txt: "txt", pdf: "pdf", docx: "docx", pptx: "pptx",
+    txt: "txt", md: "md", markdown: "md", pdf: "pdf", docx: "docx", pptx: "pptx",
     xlsx: "xlsx", csv: "csv", json: "json", yaml: "yaml", yml: "yaml",
   };
   return map[ext] ?? "unknown";

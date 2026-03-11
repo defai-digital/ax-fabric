@@ -32,6 +32,8 @@ const ASYNC_IO_CONCURRENCY = 32;
 /** Map file extensions to ContentType values. */
 const EXTENSION_MAP: Record<string, ContentType> = {
   ".txt": "txt",
+  ".md": "md",
+  ".markdown": "md",
   ".pdf": "pdf",
   ".docx": "docx",
   ".pptx": "pptx",

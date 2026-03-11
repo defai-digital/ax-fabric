@@ -15,6 +15,7 @@ export const RecordMetadataSchema = z.object({
   source_uri: z.string(),
   content_type: z.enum([
     "txt",
+    "md",
     "pdf",
     "docx",
     "pptx",
