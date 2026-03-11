@@ -1,5 +1,26 @@
 # Changelog
 
+## v1.7.0
+
+Semantic review and governance release.
+
+### Highlights
+
+- Added semantic bundle contracts with diagnostics, duplicate-group summaries, and persisted review decisions
+- Added a semantic review engine for bundle creation, inspection, approval, and rejection workflows
+- Added `ax-fabric semantic review <file>` to generate review diagnostics from a source document
+- Added `ax-fabric semantic bundle <file> --output <path>` and `ax-fabric semantic inspect <bundle>` for durable review artifacts
+- Added `ax-fabric semantic approve <bundle> --reviewer <name>` with approval thresholds and duplicate policies
+- Fixed semantic approval so `--min-quality` is enforced directly, not indirectly through the diagnostics threshold
+- Fixed reviewed bundle output so approval no longer overwrites the source bundle by default and instead writes `*.reviewed.json`
+- Added regression coverage for bundle contracts, approval policies, and non-destructive reviewed bundle output
+
+### Notes
+
+- `v1.7.0` productionizes the semantic engine through CLI-first review and governance flows
+- semantic review remains file and bundle based; semantic artifacts are still not indexed into retrieval by default
+- Studio/UI workflows remain future work beyond this release
+
 ## v1.6.0
 
 Core `SemanticDistill Engine` release.

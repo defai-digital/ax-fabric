@@ -53,7 +53,7 @@ async function setupE2e(embedderOverride?: EmbedderProvider) {
 
   // Create MCP server
   const server = new McpServer(
-    { name: "ax-fabric-e2e", version: "1.6.0" },
+    { name: "ax-fabric-e2e", version: "1.7.0" },
     { capabilities: { tools: {}, resources: {} } },
   );
 
@@ -65,7 +65,7 @@ async function setupE2e(embedderOverride?: EmbedderProvider) {
   const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
 
   // Create client
-  const client = new Client({ name: "e2e-test-client", version: "1.6.0" });
+  const client = new Client({ name: "e2e-test-client", version: "1.7.0" });
 
   // Connect both sides
   await server.connect(serverTransport);

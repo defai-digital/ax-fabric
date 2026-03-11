@@ -10,6 +10,7 @@ import { describe, expect, it } from "vitest";
 import {
   RecordSchema,
   RecordMetadataSchema,
+  SemanticBundleSchema,
   SemanticUnitSchema,
   MetadataFilterSchema,
   ErrorCodeSchema,
@@ -204,6 +205,90 @@ describe("SemanticUnitSchema", () => {
 
   it("rejects empty source span arrays", () => {
     expect(() => SemanticUnitSchema.parse({ ...valid, source_spans: [] })).toThrow();
+  });
+});
+
+describe("SemanticBundleSchema", () => {
+  const valid = {
+    bundle_id: "bundle-1",
+    source_path: "/tmp/example.md",
+    doc_id: "doc-1",
+    doc_version: "version-1",
+    content_type: "txt",
+    distill_strategy: "extractive-v1",
+    generated_at: new Date().toISOString(),
+    units: [
+      {
+        unit_id: "unit-1",
+        doc_id: "doc-1",
+        doc_version: "version-1",
+        title: "Distillation overview",
+        question: "What is the key point about Distillation overview?",
+        summary: "This section explains how semantic distillation produces grounded units.",
+        answer: "Semantic distillation produces grounded units derived directly from source text.",
+        keywords: ["semantic", "distillation"],
+        entities: ["AX Fabric"],
+        quality_score: 0.8,
+        distill_strategy: "extractive-v1",
+        source_spans: [
+          {
+            source_uri: "/tmp/example.md",
+            content_type: "txt",
+            page_range: null,
+            table_ref: null,
+            offset_start: 0,
+            offset_end: 128,
+            chunk_id: "chunk-1",
+            chunk_hash: "hash-1",
+            chunk_label: "paragraph",
+          },
+        ],
+      },
+    ],
+    diagnostics: {
+      total_units: 1,
+      average_quality_score: 0.8,
+      low_quality_unit_ids: [],
+      flagged_unit_ids: [],
+      duplicate_groups: [],
+    },
+  };
+
+  it("accepts a valid semantic bundle", () => {
+    const result = SemanticBundleSchema.parse(valid);
+    expect(result.bundle_id).toBe("bundle-1");
+    expect(result.diagnostics.total_units).toBe(1);
+  });
+
+  it("accepts an attached review decision", () => {
+    const result = SemanticBundleSchema.parse({
+      ...valid,
+      review: {
+        status: "approved",
+        reviewer: "akira",
+        reviewed_at: new Date().toISOString(),
+        min_quality_score: 0.7,
+        duplicate_policy: "warn",
+        blocking_issues: [],
+      },
+    });
+    expect(result.review?.status).toBe("approved");
+  });
+
+  it("rejects invalid review status", () => {
+    expect(() =>
+      SemanticBundleSchema.parse({
+        ...valid,
+        review: {
+          status: "unknown",
+          reviewer: "akira",
+          reviewed_at: new Date().toISOString(),
+          min_quality_score: 0.7,
+          duplicate_policy: "warn",
+          blocking_issues: [],
+        },
+      }),
+    ).toThrow();
   });
 });
 

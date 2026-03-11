@@ -17,6 +17,19 @@ export {
 } from "./semantic-unit.js";
 
 export {
+  SemanticDuplicateGroupSchema,
+  SemanticBundleDiagnosticsSchema,
+  SemanticReviewStatusSchema,
+  SemanticReviewDecisionSchema,
+  SemanticBundleSchema,
+  type SemanticDuplicateGroup,
+  type SemanticBundleDiagnostics,
+  type SemanticReviewStatus,
+  type SemanticReviewDecision,
+  type SemanticBundle,
+} from "./semantic-bundle.js";
+
+export {
   TombstoneSchema,
   TombstoneReasonSchema,
   type Tombstone,

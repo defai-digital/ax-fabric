@@ -1,6 +1,6 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
 import { Command } from "commander";
-import { mkdtempSync, writeFileSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, writeFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 
@@ -75,6 +75,68 @@ describe("semantic CLI", () => {
       await program.parseAsync(["node", "test", "semantic", "export", filePath, "--output", outputPath]);
       const output = logSpy.mock.calls.map((call) => call.join(" ")).join("\n");
       expect(output).toContain("Exported");
+    } finally {
+      logSpy.mockRestore();
+      rmSync(workdir, { recursive: true, force: true });
+    }
+  });
+
+  it("prints semantic review diagnostics", async () => {
+    const workdir = mkdtempSync(join(tmpdir(), "semantic-cli-review-"));
+    const filePath = join(workdir, "guide.md");
+    writeFileSync(
+      filePath,
+      "# Review\n\nSemantic review should surface diagnostics for approval workflows.",
+      "utf8",
+    );
+
+    const program = makeProgram();
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+
+    try {
+      await program.parseAsync(["node", "test", "semantic", "review", filePath]);
+      const output = logSpy.mock.calls.map((call) => call.join(" ")).join("\n");
+      expect(output).toContain("Semantic review:");
+      expect(output).toContain("Avg quality:");
+    } finally {
+      logSpy.mockRestore();
+      rmSync(workdir, { recursive: true, force: true });
+    }
+  });
+
+  it("approves a saved semantic bundle", async () => {
+    const workdir = mkdtempSync(join(tmpdir(), "semantic-cli-approve-"));
+    const filePath = join(workdir, "guide.txt");
+    const bundlePath = join(workdir, "bundle.json");
+    const reviewedPath = join(workdir, "bundle.reviewed.json");
+    writeFileSync(
+      filePath,
+      "Semantic approval writes a reviewed bundle with governance metadata for downstream workflows.",
+      "utf8",
+    );
+
+    const program = makeProgram();
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+
+    try {
+      await program.parseAsync(["node", "test", "semantic", "bundle", filePath, "--output", bundlePath]);
+      await program.parseAsync([
+        "node",
+        "test",
+        "semantic",
+        "approve",
+        bundlePath,
+        "--reviewer",
+        "akira",
+        "--min-quality",
+        "0.5",
+        "--duplicate-policy",
+        "warn",
+      ]);
+      const output = logSpy.mock.calls.map((call) => call.join(" ")).join("\n");
+      expect(output).toContain("Review status:");
+      expect(output).toContain("Reviewed bundle written");
+      expect(existsSync(reviewedPath)).toBe(true);
     } finally {
       logSpy.mockRestore();
       rmSync(workdir, { recursive: true, force: true });

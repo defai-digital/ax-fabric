@@ -25,7 +25,7 @@ const program = new Command();
 program
   .name("ax-fabric")
   .description("AX-Fabric document ingestion and search pipeline")
-  .version("1.6.0");
+  .version("1.7.0");
 
 registerInitCommand(program);
 
