@@ -27,6 +27,15 @@ export interface KnownFileState {
   mtimeMs: number;
 }
 
+export interface KnownScanState extends KnownFileState {
+  pipelineSignature?: string;
+}
+
+export interface ChunkSourceRecord {
+  chunkId: string;
+  sourcePath: string;
+}
+
 export class JobRegistry {
   private readonly native: JobRegistryNative;
   private closed = false;
@@ -138,6 +147,68 @@ export class JobRegistry {
       throw new AxFabricError(
         "STATE_ERROR",
         "Failed to load known file states",
+        err,
+      );
+    }
+  }
+
+  getKnownScanStates(): Map<string, KnownScanState> {
+    const withScanStates = this.native as JobRegistryNative & {
+      getKnownScanStates?: () => string;
+    };
+    if (typeof withScanStates.getKnownScanStates !== "function") {
+      const states = this.getKnownFileStates();
+      const files = this.listFiles();
+      const out = new Map<string, KnownScanState>();
+      for (const [sourcePath, state] of states) {
+        const file = files.find((entry) => entry.sourcePath === sourcePath);
+        out.set(sourcePath, {
+          ...state,
+          pipelineSignature: file?.pipelineSignature,
+        });
+      }
+      return out;
+    }
+    try {
+      const json = withScanStates.getKnownScanStates();
+      const raw = JSON.parse(json) as Record<string, KnownScanState>;
+      return new Map<string, KnownScanState>(Object.entries(raw));
+    } catch (err) {
+      throw new AxFabricError(
+        "STATE_ERROR",
+        "Failed to load known scan states",
+        err,
+      );
+    }
+  }
+
+  getChunkSources(chunkIds: string[]): Map<string, ChunkSourceRecord> {
+    if (chunkIds.length === 0) {
+      return new Map();
+    }
+    const withChunkSources = this.native as JobRegistryNative & {
+      getChunkSources?: (chunkIds: string[]) => string;
+    };
+    if (typeof withChunkSources.getChunkSources !== "function") {
+      const fallback = new Map<string, ChunkSourceRecord>();
+      for (const file of this.listFiles()) {
+        for (const chunkId of file.chunkIds) {
+          if (!chunkIds.includes(chunkId)) continue;
+          fallback.set(chunkId, { chunkId, sourcePath: file.sourcePath });
+        }
+      }
+      return fallback;
+    }
+    try {
+      const json = withChunkSources.getChunkSources(chunkIds);
+      const raw = JSON.parse(json) as Record<string, string>;
+      return new Map<string, ChunkSourceRecord>(
+        Object.entries(raw).map(([chunkId, sourcePath]) => [chunkId, { chunkId, sourcePath }]),
+      );
+    } catch (err) {
+      throw new AxFabricError(
+        "STATE_ERROR",
+        "Failed to load chunk source records",
         err,
       );
     }

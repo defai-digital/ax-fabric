@@ -523,13 +523,10 @@ async function publishStoredBundle(args: {
     if (!existingBundle) {
       throw new Error(`Published semantic bundle "${existingPublication.bundleId}" not found in canonical store`);
     }
-    await revokeBundleFromCollection({
-      bundleId: existingPublication.bundleId,
+    revokeBundleChunks({
       bundle: existingBundle,
       collectionId: args.collectionId,
-      store: args.store,
       db: args.db,
-      config: args.config,
     });
   }
 
@@ -545,6 +542,9 @@ async function publishStoredBundle(args: {
     manifestVersion: manifest.version,
     publishedAt: new Date().toISOString(),
   });
+  if (existingPublication && existingPublication.bundleId !== args.bundle.bundle_id) {
+    args.store.clearPublished(existingPublication.bundleId);
+  }
   return manifest;
 }
 
@@ -574,9 +574,12 @@ async function revokeBundleFromCollection(args: {
   db: AkiDB;
   config: FabricConfig;
 }) {
-  const chunkIds = semanticChunkIds(args.bundle);
-  if (chunkIds.length > 0) {
-    args.db.deleteChunks(args.collectionId, chunkIds, "manual_revoke");
+  const deleted = revokeBundleChunks({
+    bundle: args.bundle,
+    collectionId: args.collectionId,
+    db: args.db,
+  });
+  if (deleted) {
     const manifest = await args.db.publish(args.collectionId, {
       embeddingModelId: args.config.embedder.model_id,
       pipelineSignature: semanticPipelineSignature(args.bundle),
@@ -587,6 +590,19 @@ async function revokeBundleFromCollection(args: {
 
   args.store.clearPublished(args.bundleId);
   return null;
+}
+
+function revokeBundleChunks(args: {
+  bundle: SemanticBundle;
+  collectionId: string;
+  db: AkiDB;
+}): boolean {
+  const chunkIds = semanticChunkIds(args.bundle);
+  if (chunkIds.length === 0) {
+    return false;
+  }
+  args.db.deleteChunks(args.collectionId, chunkIds, "manual_revoke");
+  return true;
 }
 
 async function distillFromCli(

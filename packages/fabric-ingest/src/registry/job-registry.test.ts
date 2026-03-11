@@ -122,9 +122,9 @@ describe("JobRegistry", () => {
   // ─── listFiles ────────────────────────────────────────────────────────
 
   it("lists all file records sorted by source path", () => {
-    registry.upsertFile(makeFileRecord({ sourcePath: "/z/file.txt" }));
-    registry.upsertFile(makeFileRecord({ sourcePath: "/a/file.txt" }));
-    registry.upsertFile(makeFileRecord({ sourcePath: "/m/file.txt" }));
+    registry.upsertFile(makeFileRecord({ sourcePath: "/z/file.txt", chunkIds: ["z-1", "z-2"] }));
+    registry.upsertFile(makeFileRecord({ sourcePath: "/a/file.txt", chunkIds: ["a-1", "a-2"] }));
+    registry.upsertFile(makeFileRecord({ sourcePath: "/m/file.txt", chunkIds: ["m-1", "m-2"] }));
 
     const files = registry.listFiles();
     expect(files).toHaveLength(3);
@@ -143,10 +143,10 @@ describe("JobRegistry", () => {
 
   it("returns a map of sourcePath -> fingerprint", () => {
     registry.upsertFile(
-      makeFileRecord({ sourcePath: "/a.txt", fingerprint: "hash-a" }),
+      makeFileRecord({ sourcePath: "/a.txt", fingerprint: "hash-a", chunkIds: ["a-chunk"] }),
     );
     registry.upsertFile(
-      makeFileRecord({ sourcePath: "/b.txt", fingerprint: "hash-b" }),
+      makeFileRecord({ sourcePath: "/b.txt", fingerprint: "hash-b", chunkIds: ["b-chunk"] }),
     );
 
     const map = registry.getKnownFingerprints();
@@ -178,6 +178,53 @@ describe("JobRegistry", () => {
     });
   });
 
+  it("returns known scan states including pipeline signature", () => {
+    registry.upsertFile(
+      makeFileRecord({
+        sourcePath: "/scan.txt",
+        fingerprint: "scan-hash",
+        sizeBytes: 77,
+        mtimeMs: 5678,
+        pipelineSignature: "sig-scan",
+      }),
+    );
+
+    const map = registry.getKnownScanStates();
+    expect(map.get("/scan.txt")).toEqual({
+      fingerprint: "scan-hash",
+      sizeBytes: 77,
+      mtimeMs: 5678,
+      pipelineSignature: "sig-scan",
+    });
+  });
+
+  it("returns chunk source records for a targeted chunk id set", () => {
+    registry.upsertFile(
+      makeFileRecord({
+        sourcePath: "/chunk-a.txt",
+        chunkIds: ["chunk-a1", "chunk-a2"],
+      }),
+    );
+    registry.upsertFile(
+      makeFileRecord({
+        sourcePath: "/chunk-b.txt",
+        chunkIds: ["chunk-b1"],
+      }),
+    );
+
+    const map = registry.getChunkSources(["chunk-a2", "chunk-b1", "missing"]);
+    expect(map.size).toBe(2);
+    expect(map.get("chunk-a2")).toEqual({
+      chunkId: "chunk-a2",
+      sourcePath: "/chunk-a.txt",
+    });
+    expect(map.get("chunk-b1")).toEqual({
+      chunkId: "chunk-b1",
+      sourcePath: "/chunk-b.txt",
+    });
+    expect(map.has("missing")).toBe(false);
+  });
+
   it("falls back to fingerprint map when native lacks known-file-state API", () => {
     const shim = {
       getKnownFingerprints: () => JSON.stringify({ "/legacy.txt": "legacy-hash" }),
@@ -191,6 +238,42 @@ describe("JobRegistry", () => {
       sizeBytes: 0,
       mtimeMs: 0,
     });
+  });
+
+  it("falls back to known states plus listFiles when native lacks scan-state API", () => {
+    (registry as unknown as { native: unknown }).native = {
+      getKnownFileStates: () => JSON.stringify({
+        "/legacy.txt": { fingerprint: "legacy-hash", sizeBytes: 10, mtimeMs: 20 },
+      }),
+      listFiles: () => JSON.stringify([
+        makeFileRecord({ sourcePath: "/legacy.txt", pipelineSignature: "legacy-sig", chunkIds: ["legacy-chunk"] }),
+      ]),
+      close: () => undefined,
+    };
+
+    const map = registry.getKnownScanStates();
+    expect(map.get("/legacy.txt")).toEqual({
+      fingerprint: "legacy-hash",
+      sizeBytes: 10,
+      mtimeMs: 20,
+      pipelineSignature: "legacy-sig",
+    });
+  });
+
+  it("falls back to listFiles when native lacks chunk-source API", () => {
+    (registry as unknown as { native: unknown }).native = {
+      listFiles: () => JSON.stringify([
+        makeFileRecord({ sourcePath: "/legacy.txt", chunkIds: ["chunk-legacy"] }),
+      ]),
+      close: () => undefined,
+    };
+
+    const map = registry.getChunkSources(["chunk-legacy", "missing"]);
+    expect(map.get("chunk-legacy")).toEqual({
+      chunkId: "chunk-legacy",
+      sourcePath: "/legacy.txt",
+    });
+    expect(map.has("missing")).toBe(false);
   });
 
   // ─── Edge cases ───────────────────────────────────────────────────────
@@ -276,6 +359,42 @@ describe("JobRegistry", () => {
     }
     expect(stateError).toBeInstanceOf(AxFabricError);
     expect((stateError as Error).message).toContain("Failed to load known file states");
+  });
+
+  it("wraps chunk source failures as STATE_ERROR", () => {
+    (registry as unknown as { native: unknown }).native = {
+      getChunkSources: () => {
+        throw new Error("sqlite busy");
+      },
+      close: () => undefined,
+    };
+
+    let thrown: unknown;
+    try {
+      registry.getChunkSources(["chunk-1"]);
+    } catch (error) {
+      thrown = error;
+    }
+    expect(thrown).toBeInstanceOf(AxFabricError);
+    expect((thrown as Error).message).toContain("Failed to load chunk source records");
+  });
+
+  it("wraps known scan state failures as STATE_ERROR", () => {
+    (registry as unknown as { native: unknown }).native = {
+      getKnownScanStates: () => {
+        throw new Error("sqlite busy");
+      },
+      close: () => undefined,
+    };
+
+    let thrown: unknown;
+    try {
+      registry.getKnownScanStates();
+    } catch (error) {
+      thrown = error;
+    }
+    expect(thrown).toBeInstanceOf(AxFabricError);
+    expect((thrown as Error).message).toContain("Failed to load known scan states");
   });
 
   it("close() is idempotent — calling it twice does not throw", () => {

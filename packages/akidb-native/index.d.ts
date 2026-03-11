@@ -121,7 +121,9 @@ export declare class JobRegistryNative {
   deleteFile(sourcePath: string): void
   listFiles(): string
   getKnownFileStates(): string
+  getKnownScanStates(): string
   getKnownFingerprints(): string
+  getChunkSources(chunkIds: Array<string>): string
   close(): void
 }
 /**

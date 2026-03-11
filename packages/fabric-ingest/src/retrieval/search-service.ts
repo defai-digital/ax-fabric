@@ -35,6 +35,10 @@ export interface SearchExecutionResult {
   results: RenderedSearchResult[];
 }
 
+interface SemanticSearchContext {
+  store: SemanticStore | null;
+}
+
 export function buildCliFilters(opts: {
   sourceUri?: string;
   contentType?: string;
@@ -84,41 +88,47 @@ export async function executeSearch(args: {
   explain?: boolean;
   warn?: (message: string) => void;
 }): Promise<SearchExecutionResult> {
-  const activeLayer = resolveRetrievalLayer({
-    requestedLayer: args.requestedLayer,
-    defaultLayer: args.defaultLayer,
-    dataRoot: args.dataRoot,
-    semanticCollectionId: args.semanticCollectionId,
-    db: args.db,
-    warn: args.warn,
-  });
+  const semanticContext = openSemanticSearchContext(args.dataRoot);
+  try {
+    const activeLayer = resolveRetrievalLayer({
+      requestedLayer: args.requestedLayer,
+      defaultLayer: args.defaultLayer,
+      semanticCollectionId: args.semanticCollectionId,
+      db: args.db,
+      semanticContext,
+      warn: args.warn,
+    });
 
-  if (activeLayer === "fused") {
-    return executeFusedSearch(args);
+    if (activeLayer === "fused") {
+      return executeFusedSearch(args, semanticContext);
+    }
+
+    const collectionId = activeLayer === "semantic" ? args.semanticCollectionId : args.rawCollectionId;
+    const searchResult = await args.db.search({
+      collectionId,
+      queryVector: args.queryVector,
+      topK: args.topK,
+      mode: args.mode,
+      queryText: args.queryText,
+      filters: args.filters,
+      explain: args.explain,
+    });
+    const metadata = resolveSearchMetadata(
+      args.dataRoot,
+      searchResult.results.map((result) => result.chunkId),
+      args.warn,
+      semanticContext,
+    );
+
+    return {
+      layer: activeLayer,
+      collectionId,
+      manifestVersion: searchResult.manifestVersionUsed,
+      results: searchResult.results.map((result) => renderResult(result, metadata)),
+    };
+  } finally {
+    semanticContext.store?.close();
   }
-
-  const collectionId = activeLayer === "semantic" ? args.semanticCollectionId : args.rawCollectionId;
-  const searchResult = await args.db.search({
-    collectionId,
-    queryVector: args.queryVector,
-    topK: args.topK,
-    mode: args.mode,
-    queryText: args.queryText,
-    filters: args.filters,
-    explain: args.explain,
-  });
-  const metadata = resolveSearchMetadata(
-    args.dataRoot,
-    searchResult.results.map((result) => result.chunkId),
-    args.warn,
-  );
-
-  return {
-    layer: activeLayer,
-    collectionId,
-    manifestVersion: searchResult.manifestVersionUsed,
-    results: searchResult.results.map((result) => renderResult(result, metadata)),
-  };
 }
 
 function executeFusedSearch(args: {
@@ -133,7 +143,7 @@ function executeFusedSearch(args: {
   filters?: MetadataFilter;
   explain?: boolean;
   warn?: (message: string) => void;
-}): Promise<SearchExecutionResult> {
+}, semanticContext: SemanticSearchContext): Promise<SearchExecutionResult> {
   return (async () => {
     const rawResult = await args.db.search({
       collectionId: args.rawCollectionId,
@@ -165,6 +175,7 @@ function executeFusedSearch(args: {
       args.dataRoot,
       [...rawResult.results.map((result) => result.chunkId), ...semanticResults.map((result) => result.chunkId)],
       args.warn,
+      semanticContext,
     );
 
     type ScoredEntry = {
@@ -260,15 +271,15 @@ function renderResult(
 function resolveRetrievalLayer(args: {
   requestedLayer: "auto" | "raw" | "semantic" | "fused";
   defaultLayer: "auto" | "raw" | "semantic" | "fused";
-  dataRoot: string;
   semanticCollectionId: string;
   db: AkiDB;
+  semanticContext: SemanticSearchContext;
   warn?: (message: string) => void;
 }): "raw" | "semantic" | "fused" {
   const desired = args.requestedLayer === "auto" ? args.defaultLayer : args.requestedLayer;
   if (desired === "raw") return "raw";
 
-  const semanticReady = hasPublishedSemanticCollection(args.dataRoot, args.semanticCollectionId)
+  const semanticReady = hasPublishedSemanticCollection(args.semanticContext, args.semanticCollectionId)
     && hasCollection(args.db, args.semanticCollectionId);
 
   if (desired === "semantic" || desired === "fused") {
@@ -291,28 +302,15 @@ function hasCollection(db: AkiDB, collectionId: string): boolean {
   }
 }
 
-function hasPublishedSemanticCollection(dataRoot: string, semanticCollectionId: string): boolean {
-  const semanticDbPath = join(dataRoot, "semantic.db");
-  if (!existsSync(semanticDbPath)) {
-    return false;
-  }
-
-  try {
-    const store = new SemanticStore(semanticDbPath);
-    try {
-      return store.hasPublishedCollection(semanticCollectionId);
-    } finally {
-      store.close();
-    }
-  } catch {
-    return false;
-  }
+function hasPublishedSemanticCollection(semanticContext: SemanticSearchContext, semanticCollectionId: string): boolean {
+  return semanticContext.store?.hasPublishedCollection(semanticCollectionId) ?? false;
 }
 
 function resolveSearchMetadata(
   dataRoot: string,
   chunkIds: string[],
   warn?: (message: string) => void,
+  semanticContext?: SemanticSearchContext,
 ): Map<string, SearchResultMetadata> {
   const metadata = new Map<string, SearchResultMetadata>();
   if (chunkIds.length === 0) {
@@ -344,20 +342,35 @@ function resolveSearchMetadata(
     return metadata;
   }
 
+  const resolveLookups = (store: SemanticStore): void => {
+    for (const chunkId of Array.from(remaining)) {
+      const lookup = store.getPublishedUnitLookup(chunkId);
+      if (!lookup) continue;
+      setSemanticLookup(metadata, lookup);
+      remaining.delete(chunkId);
+    }
+  };
+
+  let sharedStoreError: unknown;
+  if (semanticContext?.store) {
+    try {
+      resolveLookups(semanticContext.store);
+      return metadata;
+    } catch (err) {
+      sharedStoreError = err;
+    }
+  }
+
   try {
     const store = new SemanticStore(semanticDbPath);
     try {
-      for (const chunkId of Array.from(remaining)) {
-        const lookup = store.getPublishedUnitLookup(chunkId);
-        if (!lookup) continue;
-        setSemanticLookup(metadata, lookup);
-        remaining.delete(chunkId);
-      }
+      resolveLookups(store);
     } finally {
       store.close();
     }
   } catch (err) {
-    warn?.(`Warning: could not load semantic store (semantic source paths will be missing): ${err instanceof Error ? err.message : String(err)}`);
+    const detail = sharedStoreError ?? err;
+    warn?.(`Warning: could not load semantic store (semantic source paths will be missing): ${detail instanceof Error ? detail.message : String(detail)}`);
   }
 
   return metadata;
@@ -368,22 +381,34 @@ function buildChunkIndex(
   chunkIds?: Set<string>,
 ): Map<string, SearchResultMetadata> {
   const map = new Map<string, SearchResultMetadata>();
-  const files = registry.listFiles();
+  const requestedChunkIds = chunkIds ? Array.from(chunkIds).filter((chunkId) => !chunkId.startsWith("semantic:")) : [];
+  if (requestedChunkIds.length === 0) {
+    return map;
+  }
 
-  for (const file of files) {
-    for (const chunkId of file.chunkIds) {
-      if (chunkIds && !chunkIds.has(chunkId)) {
-        continue;
-      }
-      map.set(chunkId, {
-        sourcePath: file.sourcePath,
-        contentType: guessContentType(file.sourcePath),
-        dedupeKey: chunkId,
-      });
-    }
+  const chunkSources = registry.getChunkSources(requestedChunkIds);
+  for (const [chunkId, value] of chunkSources) {
+    map.set(chunkId, {
+      sourcePath: value.sourcePath,
+      contentType: guessContentType(value.sourcePath),
+      dedupeKey: chunkId,
+    });
   }
 
   return map;
+}
+
+function openSemanticSearchContext(dataRoot: string): SemanticSearchContext {
+  const semanticDbPath = join(dataRoot, "semantic.db");
+  if (!existsSync(semanticDbPath)) {
+    return { store: null };
+  }
+
+  try {
+    return { store: new SemanticStore(semanticDbPath) };
+  } catch {
+    return { store: null };
+  }
 }
 
 function setSemanticLookup(

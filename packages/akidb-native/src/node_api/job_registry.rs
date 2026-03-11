@@ -19,6 +19,15 @@ CREATE TABLE IF NOT EXISTS files (
   status TEXT NOT NULL CHECK (status IN ('success', 'error')),
   error_message TEXT
 );
+
+CREATE TABLE IF NOT EXISTS file_chunks (
+  chunk_id TEXT PRIMARY KEY,
+  source_path TEXT NOT NULL,
+  FOREIGN KEY(source_path) REFERENCES files(source_path) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_file_chunks_source_path
+  ON file_chunks(source_path);
 "#;
 
 const JOB_REGISTRY_UPSERT_SQL: &str = r#"
@@ -69,7 +78,7 @@ pub struct JobRegistryNative {
 impl JobRegistryNative {
     #[napi(constructor)]
     pub fn new(db_path: String) -> Result<Self> {
-        let conn = Connection::open(&db_path)
+        let mut conn = Connection::open(&db_path)
             .map_err(|e| Error::from_reason(format!("Failed to open job registry at {db_path}: {e}")))?;
         conn.execute_batch(
             "PRAGMA journal_mode = WAL;
@@ -88,7 +97,7 @@ impl JobRegistryNative {
                     "Failed to initialize job registry schema at {db_path}: {e}"
                 ))
             })?;
-        ensure_job_registry_columns(&conn)?;
+        ensure_job_registry_columns(&mut conn)?;
 
         Ok(Self {
             conn: Mutex::new(Some(conn)),
@@ -147,7 +156,8 @@ impl JobRegistryNative {
             .map_err(|e| Error::from_reason(format!("Invalid file record JSON: {e}")))?;
 
         self.with_conn(|conn| {
-            conn.execute(
+            let tx = conn.transaction().map_err(to_napi_error)?;
+            tx.execute(
                 JOB_REGISTRY_UPSERT_SQL,
                 params![
                     record.source_path,
@@ -165,6 +175,23 @@ impl JobRegistryNative {
                 ],
             )
             .map_err(to_napi_error)?;
+
+            tx.execute(
+                "DELETE FROM file_chunks WHERE source_path = ?",
+                params![record.source_path],
+            )
+            .map_err(to_napi_error)?;
+
+            let mut insert_chunk = tx
+                .prepare("INSERT INTO file_chunks (chunk_id, source_path) VALUES (?, ?)")
+                .map_err(to_napi_error)?;
+            for chunk_id in &record.chunk_ids {
+                insert_chunk
+                    .execute(params![chunk_id, record.source_path])
+                    .map_err(to_napi_error)?;
+            }
+            drop(insert_chunk);
+            tx.commit().map_err(to_napi_error)?;
             Ok(())
         })
     }
@@ -172,8 +199,12 @@ impl JobRegistryNative {
     #[napi]
     pub fn delete_file(&self, source_path: String) -> Result<()> {
         self.with_conn(|conn| {
-            conn.execute("DELETE FROM files WHERE source_path = ?", params![source_path])
+            let tx = conn.transaction().map_err(to_napi_error)?;
+            tx.execute("DELETE FROM file_chunks WHERE source_path = ?", params![source_path.clone()])
                 .map_err(to_napi_error)?;
+            tx.execute("DELETE FROM files WHERE source_path = ?", params![source_path])
+                .map_err(to_napi_error)?;
+            tx.commit().map_err(to_napi_error)?;
             Ok(())
         })
     }
@@ -236,6 +267,31 @@ impl JobRegistryNative {
     }
 
     #[napi]
+    pub fn get_known_scan_states(&self) -> Result<String> {
+        self.with_conn(|conn| {
+            let mut stmt = conn
+                .prepare("SELECT source_path, fingerprint, size_bytes, mtime_ms, pipeline_signature FROM files")
+                .map_err(to_napi_error)?;
+            let mut rows = stmt.query([]).map_err(to_napi_error)?;
+            let mut out = serde_json::Map::new();
+            while let Some(row) = rows.next().map_err(to_napi_error)? {
+                let source_path: String = row.get(0).map_err(to_napi_error)?;
+                let fingerprint: String = row.get(1).map_err(to_napi_error)?;
+                let size_bytes: i64 = row.get(2).map_err(to_napi_error)?;
+                let mtime_ms: f64 = row.get(3).map_err(to_napi_error)?;
+                let pipeline_signature: String = row.get(4).map_err(to_napi_error)?;
+                out.insert(source_path, serde_json::json!({
+                    "fingerprint": fingerprint,
+                    "sizeBytes": size_bytes,
+                    "mtimeMs": mtime_ms,
+                    "pipelineSignature": pipeline_signature,
+                }));
+            }
+            Ok(serde_json::Value::Object(out).to_string())
+        })
+    }
+
+    #[napi]
     pub fn get_known_fingerprints(&self) -> Result<String> {
         self.with_conn(|conn| {
             let mut stmt = conn
@@ -248,6 +304,40 @@ impl JobRegistryNative {
                 let fingerprint: String = row.get(1).map_err(to_napi_error)?;
                 out.insert(source_path, serde_json::Value::String(fingerprint));
             }
+            Ok(serde_json::Value::Object(out).to_string())
+        })
+    }
+
+    #[napi]
+    pub fn get_chunk_sources(&self, chunk_ids: Vec<String>) -> Result<String> {
+        self.with_conn(|conn| {
+            let mut out = serde_json::Map::new();
+            if chunk_ids.is_empty() {
+                return Ok(serde_json::Value::Object(out).to_string());
+            }
+
+            const BATCH_SIZE: usize = 500;
+            for batch in chunk_ids.chunks(BATCH_SIZE) {
+                let placeholders = vec!["?"; batch.len()].join(", ");
+                let sql = format!(
+                    "SELECT chunk_id, source_path FROM file_chunks WHERE chunk_id IN ({})",
+                    placeholders
+                );
+                let mut stmt = conn.prepare(&sql).map_err(to_napi_error)?;
+                let rows = stmt
+                    .query_map(rusqlite::params_from_iter(batch.iter()), |row| {
+                        let chunk_id: String = row.get(0)?;
+                        let source_path: String = row.get(1)?;
+                        Ok((chunk_id, source_path))
+                    })
+                    .map_err(to_napi_error)?;
+
+                for row in rows {
+                    let (chunk_id, source_path) = row.map_err(to_napi_error)?;
+                    out.insert(chunk_id, serde_json::Value::String(source_path));
+                }
+            }
+
             Ok(serde_json::Value::Object(out).to_string())
         })
     }
@@ -269,14 +359,14 @@ impl JobRegistryNative {
 impl JobRegistryNative {
     fn with_conn<T, F>(&self, f: F) -> Result<T>
     where
-        F: FnOnce(&Connection) -> Result<T>,
+        F: FnOnce(&mut Connection) -> Result<T>,
     {
-        let guard = self
+        let mut guard = self
             .conn
             .lock()
             .map_err(|_| Error::from_reason("JobRegistryNative lock poisoned"))?;
         let conn = guard
-            .as_ref()
+            .as_mut()
             .ok_or_else(|| Error::from_reason("Job registry is closed"))?;
         f(conn)
     }
@@ -286,7 +376,7 @@ fn to_napi_error(err: rusqlite::Error) -> Error {
     Error::from_reason(format!("SQLite error: {err}"))
 }
 
-fn ensure_job_registry_columns(conn: &Connection) -> Result<()> {
+fn ensure_job_registry_columns(conn: &mut Connection) -> Result<()> {
     let mut stmt = conn
         .prepare("PRAGMA table_info(files)")
         .map_err(to_napi_error)?;
@@ -305,6 +395,8 @@ fn ensure_job_registry_columns(conn: &Connection) -> Result<()> {
             has_pipeline_signature = true;
         }
     }
+    drop(rows);
+    drop(stmt);
 
     if !has_size_bytes {
         conn.execute(
@@ -328,5 +420,57 @@ fn ensure_job_registry_columns(conn: &Connection) -> Result<()> {
         .map_err(to_napi_error)?;
     }
 
+    conn.execute_batch(
+        "CREATE TABLE IF NOT EXISTS file_chunks (
+           chunk_id TEXT PRIMARY KEY,
+           source_path TEXT NOT NULL,
+           FOREIGN KEY(source_path) REFERENCES files(source_path) ON DELETE CASCADE
+         );
+         CREATE INDEX IF NOT EXISTS idx_file_chunks_source_path
+           ON file_chunks(source_path);",
+    )
+    .map_err(|e| Error::from_reason(format!("Failed to ensure file_chunks table: {e}")))?;
+
+    backfill_chunk_refs(conn)?;
+
+    Ok(())
+}
+
+fn backfill_chunk_refs(conn: &mut Connection) -> Result<()> {
+    let count: i64 = conn
+        .query_row("SELECT COUNT(*) FROM file_chunks", [], |row| row.get(0))
+        .map_err(to_napi_error)?;
+    if count > 0 {
+        return Ok(());
+    }
+
+    let mut stmt = conn
+        .prepare("SELECT source_path, chunk_ids FROM files")
+        .map_err(to_napi_error)?;
+    let rows = stmt
+        .query_map([], |row| {
+            let source_path: String = row.get(0)?;
+            let chunk_ids_raw: String = row.get(1)?;
+            Ok((source_path, chunk_ids_raw))
+        })
+        .map_err(to_napi_error)?;
+
+    let tx = conn.unchecked_transaction().map_err(to_napi_error)?;
+    {
+        let mut insert_chunk = tx
+            .prepare("INSERT OR REPLACE INTO file_chunks (chunk_id, source_path) VALUES (?, ?)")
+            .map_err(to_napi_error)?;
+        for row in rows {
+            let (source_path, chunk_ids_raw) = row.map_err(to_napi_error)?;
+            let chunk_ids = serde_json::from_str::<Vec<String>>(&chunk_ids_raw)
+                .map_err(|e| Error::from_reason(format!("Invalid chunk_ids JSON in registry: {e}")))?;
+            for chunk_id in &chunk_ids {
+                insert_chunk
+                    .execute(params![chunk_id, source_path])
+                    .map_err(to_napi_error)?;
+            }
+        }
+    }
+    tx.commit().map_err(to_napi_error)?;
     Ok(())
 }

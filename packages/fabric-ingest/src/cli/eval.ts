@@ -61,10 +61,11 @@ function expandTilde(p: string): string {
 
 function buildChunkIndex(registry: JobRegistry): Map<string, string> {
   const map = new Map<string, string>();
-  for (const file of registry.listFiles()) {
-    for (const chunkId of file.chunkIds) {
-      map.set(chunkId, file.sourcePath);
-    }
+  const files = registry.listFiles();
+  const chunkIds = files.flatMap((file) => file.chunkIds);
+  const chunkSources = registry.getChunkSources(chunkIds);
+  for (const [chunkId, chunkSource] of chunkSources) {
+    map.set(chunkId, chunkSource.sourcePath);
   }
   return map;
 }

@@ -409,6 +409,9 @@ describe("semantic CLI", () => {
         "--duplicate-policy", "warn",
       ]);
       await program.parseAsync(["node", "test", "semantic", "publish", firstBundleId]);
+      let publicationStore = new SemanticStore(join(dataRoot, "semantic.db"));
+      const firstManifestVersion = publicationStore.getStoredBundle(firstBundleId)!.publication!.manifestVersion;
+      publicationStore.close();
 
       writeFileSync(
         filePath,
@@ -417,9 +420,9 @@ describe("semantic CLI", () => {
       );
 
       await program.parseAsync(["node", "test", "semantic", "store", filePath]);
-      store = new SemanticStore(join(dataRoot, "semantic.db"));
-      const secondBundleId = store.listBundles()[0]!.bundleId;
-      store.close();
+      publicationStore = new SemanticStore(join(dataRoot, "semantic.db"));
+      const secondBundleId = publicationStore.listBundles()[0]!.bundleId;
+      publicationStore.close();
 
       await program.parseAsync([
         "node", "test", "semantic", "approve-store", secondBundleId,
@@ -429,10 +432,11 @@ describe("semantic CLI", () => {
       ]);
       await program.parseAsync(["node", "test", "semantic", "publish", secondBundleId, "--replace"]);
 
-      store = new SemanticStore(join(dataRoot, "semantic.db"));
-      expect(store.getStoredBundle(firstBundleId)?.publication).toBeNull();
-      expect(store.getStoredBundle(secondBundleId)?.publication?.collectionId).toBe("test-col-semantic");
-      store.close();
+      publicationStore = new SemanticStore(join(dataRoot, "semantic.db"));
+      expect(publicationStore.getStoredBundle(firstBundleId)?.publication).toBeNull();
+      expect(publicationStore.getStoredBundle(secondBundleId)?.publication?.collectionId).toBe("test-col-semantic");
+      expect(publicationStore.getStoredBundle(secondBundleId)?.publication?.manifestVersion).toBe(firstManifestVersion + 1);
+      publicationStore.close();
 
       const result = await db.search({
         collectionId: "test-col-semantic",
