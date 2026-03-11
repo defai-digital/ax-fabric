@@ -36,19 +36,19 @@ export function registerMcpCommand(program: Command): void {
       const { start, close } = createMcpServer({ configPath: opts.config });
 
       // Graceful shutdown
-      process.on("SIGINT", () => {
-        close();
+      process.on("SIGINT", async () => {
+        await close();
         process.exit(0);
       });
-      process.on("SIGTERM", () => {
-        close();
+      process.on("SIGTERM", async () => {
+        await close();
         process.exit(0);
       });
 
       try {
         await start();
       } catch (err) {
-        close();
+        await close();
         console.error("MCP server failed to start:", err instanceof Error ? err.message : String(err));
         process.exit(1);
       }

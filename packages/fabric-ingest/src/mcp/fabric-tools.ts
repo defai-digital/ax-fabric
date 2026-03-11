@@ -191,7 +191,7 @@ export function registerFabricTools(server: McpServer, deps: FabricToolsDeps): v
 
   server.tool(
     "fabric_search",
-    "Search for documents by semantic similarity (auto-embeds the query text)",
+    "Search for documents by semantic similarity or keyword/hybrid retrieval",
     {
       query: z.string().describe("Natural language search query"),
       collection_id: z.string().optional().describe("Target collection (default: from config)"),
@@ -203,13 +203,15 @@ export function registerFabricTools(server: McpServer, deps: FabricToolsDeps): v
       try {
         const collectionId = args.collection_id ?? config.akidb.collection;
 
-        // Auto-embed the query text
-        const vectors = await embedder.embed([args.query]);
-        const vec0 = vectors[0];
-        if (!vec0 || vec0.length === 0) {
-          return { content: [{ type: "text" as const, text: "Error: embedder returned no vector for query" }], isError: true };
+        let queryVector = new Float32Array(0);
+        if (args.mode !== "keyword") {
+          const vectors = await embedder.embed([args.query]);
+          const vec0 = vectors[0];
+          if (!vec0 || vec0.length === 0) {
+            return { content: [{ type: "text" as const, text: "Error: embedder returned no vector for query" }], isError: true };
+          }
+          queryVector = new Float32Array(vec0);
         }
-        const queryVector = new Float32Array(vec0);
 
         const result = await db.search({
           collectionId,

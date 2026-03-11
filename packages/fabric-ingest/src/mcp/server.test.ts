@@ -106,6 +106,32 @@ describe("MCP Server", () => {
     });
   });
 
+  describe("createMcpServer", () => {
+    it("closes the embedder during shutdown", async () => {
+      const closeSpy = vi.fn(async () => undefined);
+
+      vi.resetModules();
+      vi.doMock("../cli/config-loader.js", () => ({
+        loadConfig: () => createTestConfig(tmpDir),
+        resolveDataRoot: (cfg: FabricConfig) => cfg.fabric.data_root,
+      }));
+      vi.doMock("../cli/create-embedder.js", () => ({
+        createEmbedderFromConfig: () => ({
+          modelId: "test-embed",
+          dimension: 128,
+          embed: vi.fn(async () => []),
+          close: closeSpy,
+        }),
+      }));
+
+      const { createMcpServer } = await import("./server.js");
+      const instance = createMcpServer({ configPath: join(tmpDir, "config.yaml") });
+      await instance.close();
+
+      expect(closeSpy).toHaveBeenCalledTimes(1);
+    });
+  });
+
   describe("akidb_create_collection tool handler", () => {
     it("can create a collection via tool handler", async () => {
       // Test the underlying AkiDB operations that the tool wraps

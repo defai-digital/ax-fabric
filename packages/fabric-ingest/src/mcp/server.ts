@@ -39,7 +39,7 @@ export interface McpServerOptions {
 export function createMcpServer(options?: McpServerOptions): {
   server: McpServer;
   start: () => Promise<void>;
-  close: () => void;
+  close: () => Promise<void>;
 } {
   const config = loadConfig(options?.configPath);
   const dataRoot = resolveDataRoot(config);
@@ -77,7 +77,8 @@ export function createMcpServer(options?: McpServerOptions): {
     await server.connect(transport);
   };
 
-  const close = (): void => {
+  const close = async (): Promise<void> => {
+    await embedder.close?.().catch(() => undefined);
     db.close();
   };
 

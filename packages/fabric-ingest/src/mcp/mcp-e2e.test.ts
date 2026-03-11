@@ -20,6 +20,7 @@ import { registerFabricTools } from "./fabric-tools.js";
 import { registerResources } from "./resources.js";
 import { MockEmbedder } from "../embedder/index.js";
 import type { FabricConfig } from "../cli/config-loader.js";
+import type { EmbedderProvider } from "@ax-fabric/contracts";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -36,7 +37,7 @@ function createConfig(tmpDir: string): FabricConfig {
   };
 }
 
-async function setupE2e() {
+async function setupE2e(embedderOverride?: EmbedderProvider) {
   const tmpDir = mkdtempSync(join(tmpdir(), "mcp-e2e-"));
   const docsDir = join(tmpDir, "docs");
   rmSync(docsDir, { recursive: true, force: true });
@@ -48,7 +49,7 @@ async function setupE2e() {
   const config = createConfig(tmpDir);
   const registryDbPath = join(tmpDir, "registry.db");
   const db = new AkiDB({ storagePath: tmpDir });
-  const embedder = new MockEmbedder({ modelId: "test-embed", dimension: 128 });
+  const embedder = embedderOverride ?? new MockEmbedder({ modelId: "test-embed", dimension: 128 });
 
   // Create MCP server
   const server = new McpServer(
@@ -234,6 +235,71 @@ describe("MCP E2E", () => {
     // Verify no raw api_key leaks
     if (data.embedder?.api_key) {
       expect(data.embedder.api_key).toBe("***REDACTED***");
+    }
+  });
+
+  it("fabric_search keyword mode does not require embedding", async () => {
+    const throwingEmbedder: EmbedderProvider = {
+      modelId: "test-embed",
+      dimension: 128,
+      async embed(): Promise<number[][]> {
+        throw new Error("embed should not be called for keyword mode");
+      },
+    };
+
+    const setup = await setupE2e(throwingEmbedder);
+    const keywordClient = setup.client;
+    const keywordDb = setup.db;
+    const keywordTmpDir = setup.tmpDir;
+
+    try {
+      keywordDb.createCollection({
+        collectionId: "keyword-test",
+        dimension: 128,
+        metric: "cosine",
+        embeddingModelId: "test-embed",
+      });
+
+      await keywordDb.upsertBatch("keyword-test", [{
+        chunk_id: "keyword-chunk-1",
+        doc_id: "keyword-doc-1",
+        doc_version: "v1",
+        chunk_hash: "keyword-hash-1",
+        pipeline_signature: "keyword-sig",
+        embedding_model_id: "test-embed",
+        vector: Array.from({ length: 128 }, () => 0),
+        metadata: {
+          source_uri: "test://keyword-doc-1",
+          content_type: "txt",
+          page_range: null,
+          offset: 0,
+          table_ref: null,
+          created_at: new Date().toISOString(),
+        },
+        chunk_text: "offline enterprise retrieval",
+      }]);
+
+      await keywordDb.publish("keyword-test", {
+        embeddingModelId: "test-embed",
+        pipelineSignature: "keyword-sig",
+      });
+
+      const result = await keywordClient.callTool({
+        name: "fabric_search",
+        arguments: {
+          collection_id: "keyword-test",
+          query: "enterprise",
+          mode: "keyword",
+          top_k: 3,
+        },
+      });
+
+      expect(result.isError).toBeFalsy();
+      const data = JSON.parse((result.content as Array<{ text: string }>)[0]!.text);
+      expect(data.results).toHaveLength(1);
+    } finally {
+      keywordDb.close();
+      rmSync(keywordTmpDir, { recursive: true, force: true });
     }
   });
 
