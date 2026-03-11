@@ -1,5 +1,6 @@
 import type { DispatchPolicy } from "./policy.js";
 import type { WorkerRegistry } from "./registry.js";
+import { DEFAULT_WORKER_REQUEST_TIMEOUT_MS } from "../constants.js";
 
 export interface DispatchResult {
   status: number;
@@ -76,7 +77,7 @@ export class DirectDispatcher {
           ...(headers["authorization"] ? { authorization: headers["authorization"] } : {}),
         },
         body: new Uint8Array(body),
-        signal: AbortSignal.timeout(300_000), // 5-minute hard timeout per worker request
+        signal: AbortSignal.timeout(DEFAULT_WORKER_REQUEST_TIMEOUT_MS),
       });
 
       const buf = Buffer.from(await response.arrayBuffer());

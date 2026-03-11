@@ -11,6 +11,12 @@
  * compaction is never deferred indefinitely on low-churn workloads.
  */
 
+import {
+  DEFAULT_TOMBSTONE_DENSITY_THRESHOLD,
+  DEFAULT_MAX_CYCLES_WITHOUT_COMPACT,
+  DEFAULT_MIN_TOMBSTONES_FOR_DENSITY_CHECK,
+} from "../constants.js";
+
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 export interface CompactionPolicyOptions {
@@ -62,9 +68,9 @@ export class SmartCompactionPolicy {
   private readonly minTombstonesForDensityCheck: number;
 
   constructor(opts: CompactionPolicyOptions = {}) {
-    this.densityThreshold = opts.tombstoneDensityThreshold ?? 0.3;
-    this.maxCyclesWithoutCompact = opts.maxCyclesWithoutCompact ?? 20;
-    this.minTombstonesForDensityCheck = opts.minTombstonesForDensityCheck ?? 5;
+    this.densityThreshold = opts.tombstoneDensityThreshold ?? DEFAULT_TOMBSTONE_DENSITY_THRESHOLD;
+    this.maxCyclesWithoutCompact = opts.maxCyclesWithoutCompact ?? DEFAULT_MAX_CYCLES_WITHOUT_COMPACT;
+    this.minTombstonesForDensityCheck = opts.minTombstonesForDensityCheck ?? DEFAULT_MIN_TOMBSTONES_FOR_DENSITY_CHECK;
   }
 
   /**

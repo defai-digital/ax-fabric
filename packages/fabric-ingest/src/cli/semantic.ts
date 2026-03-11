@@ -17,6 +17,7 @@ import {
 
 import { createEmbedderFromConfig } from "./create-embedder.js";
 import { loadConfig, resolveConfigPath, resolveDataRoot, type FabricConfig } from "./config-loader.js";
+import { DEFAULT_LOW_QUALITY_THRESHOLD } from "../constants.js";
 
 export function registerSemanticCommand(program: Command): void {
   const semantic = program
@@ -104,7 +105,7 @@ export function registerSemanticCommand(program: Command): void {
     .option("--strategy <strategy>", "Chunking strategy: auto | fixed | markdown | structured")
     .option("--chunk-size <number>", "Override semantic distill chunk size")
     .option("--overlap <ratio>", "Override semantic distill overlap ratio")
-    .option("--low-quality-threshold <number>", "Flag units below this quality score", "0.6")
+    .option("--low-quality-threshold <number>", "Flag units below this quality score", String(DEFAULT_LOW_QUALITY_THRESHOLD))
     .action(async (file: string, opts: ReviewOptions) => {
       const bundle = await createBundleFromCli(file, opts);
 
@@ -123,7 +124,7 @@ export function registerSemanticCommand(program: Command): void {
     .option("--strategy <strategy>", "Chunking strategy: auto | fixed | markdown | structured")
     .option("--chunk-size <number>", "Override semantic distill chunk size")
     .option("--overlap <ratio>", "Override semantic distill overlap ratio")
-    .option("--low-quality-threshold <number>", "Flag units below this quality score", "0.6")
+    .option("--low-quality-threshold <number>", "Flag units below this quality score", String(DEFAULT_LOW_QUALITY_THRESHOLD))
     .action(async (file: string, opts: BundleOptions) => {
       const bundle = await createBundleFromCli(file, opts);
       const outputPath = resolve(opts.output);
@@ -187,7 +188,7 @@ export function registerSemanticCommand(program: Command): void {
     .option("--strategy <strategy>", "Chunking strategy: auto | fixed | markdown | structured")
     .option("--chunk-size <number>", "Override semantic distill chunk size")
     .option("--overlap <ratio>", "Override semantic distill overlap ratio")
-    .option("--low-quality-threshold <number>", "Flag units below this quality score", "0.6")
+    .option("--low-quality-threshold <number>", "Flag units below this quality score", String(DEFAULT_LOW_QUALITY_THRESHOLD))
     .action(async (file: string, opts: StoredBundleOptions) => {
       const { store, bundle } = await createStoredBundleFromCli(file, opts);
       try {

@@ -11,6 +11,20 @@ import {
   type HeartbeatRequest,
   type RegisterRequest,
 } from "./registry.js";
+import {
+  DEFAULT_LOCALHOST,
+  DEFAULT_PUBLIC_PORT,
+  DEFAULT_INTERNAL_PORT,
+  DEFAULT_HEARTBEAT_INTERVAL_MS,
+  MIN_HEARTBEAT_INTERVAL_MS,
+  DEFAULT_WORKER_TTL_MS,
+  MIN_TICK_INTERVAL_MS,
+  DEFAULT_RETRY_AFTER_SECS,
+  ORCHESTRATOR_QUEUE_MAX,
+  ORCHESTRATOR_QUEUE_DEPTH,
+  ORCHESTRATOR_QUEUE_WAIT_MS,
+  ENV_ORCHESTRATOR_TOKEN,
+} from "../constants.js";
 
 interface ServerLike {
   once(event: "error", listener: (error: Error) => void): unknown;
@@ -59,16 +73,16 @@ const JSON_HEADERS = { "content-type": "application/json; charset=utf-8" };
 
 export function createOrchestratorServer(config: OrchestratorServerConfig = {}): OrchestratorServer {
   const registry = new WorkerRegistry();
-  const heartbeatIntervalMs = Math.max(250, config.heartbeatIntervalMs ?? 5_000);
-  const ttlMs = Math.max(heartbeatIntervalMs * 2, config.ttlMs ?? 15_000);
-  const tickIntervalMs = Math.max(100, config.tickIntervalMs ?? Math.floor(heartbeatIntervalMs / 2));
+  const heartbeatIntervalMs = Math.max(MIN_HEARTBEAT_INTERVAL_MS, config.heartbeatIntervalMs ?? DEFAULT_HEARTBEAT_INTERVAL_MS);
+  const ttlMs = Math.max(heartbeatIntervalMs * 2, config.ttlMs ?? DEFAULT_WORKER_TTL_MS);
+  const tickIntervalMs = Math.max(MIN_TICK_INTERVAL_MS, config.tickIntervalMs ?? Math.floor(heartbeatIntervalMs / 2));
 
-  const publicHost = config.publicHost ?? "127.0.0.1";
-  const publicPort = config.publicPort ?? 18080;
-  const internalHost = config.internalHost ?? "127.0.0.1";
-  const internalPort = config.internalPort ?? 19090;
-  const authToken = normalizeToken(config.authToken ?? process.env["AX_FABRIC_ORCHESTRATOR_TOKEN"]);
-  const retryAfterSecs = Math.max(1, config.retryAfterSecs ?? 5);
+  const publicHost = config.publicHost ?? DEFAULT_LOCALHOST;
+  const publicPort = config.publicPort ?? DEFAULT_PUBLIC_PORT;
+  const internalHost = config.internalHost ?? DEFAULT_LOCALHOST;
+  const internalPort = config.internalPort ?? DEFAULT_INTERNAL_PORT;
+  const authToken = normalizeToken(config.authToken ?? process.env[ENV_ORCHESTRATOR_TOKEN]);
+  const retryAfterSecs = Math.max(1, config.retryAfterSecs ?? DEFAULT_RETRY_AFTER_SECS);
 
   if ((isNonLoopbackHost(publicHost) || isNonLoopbackHost(internalHost)) && !authToken) {
     throw new Error(
@@ -78,9 +92,9 @@ export function createOrchestratorServer(config: OrchestratorServerConfig = {}):
   }
 
   const queue = new GlobalQueue({
-    maxConcurrent: Math.max(1, config.globalQueueMax ?? 128),
-    maxQueueDepth: Math.max(0, config.globalQueueDepth ?? 256),
-    waitMs: Math.max(1, config.globalQueueWaitMs ?? 10_000),
+    maxConcurrent: Math.max(1, config.globalQueueMax ?? ORCHESTRATOR_QUEUE_MAX),
+    maxQueueDepth: Math.max(0, config.globalQueueDepth ?? ORCHESTRATOR_QUEUE_DEPTH),
+    waitMs: Math.max(1, config.globalQueueWaitMs ?? ORCHESTRATOR_QUEUE_WAIT_MS),
     overloadPolicy: config.globalQueuePolicy ?? "reject",
   });
   const dispatcher = new DirectDispatcher(policyFromName(config.dispatchPolicy));

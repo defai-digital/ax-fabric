@@ -10,13 +10,14 @@ import { readFileSync, writeFileSync, mkdirSync, existsSync, chmodSync } from "n
 import { join } from "node:path";
 import { homedir } from "node:os";
 import { timingSafeEqual } from "node:crypto";
+import { AX_FABRIC_HOME_DIR, MCP_TOKEN_FILENAME, ENV_MCP_TOKEN } from "../constants.js";
 
 const TOKEN_PREFIX = "axf_tk_";
 const TOKEN_BYTES = 32;
 const BASE62_CHARS = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
 
 function tokenFilePath(): string {
-  return join(homedir(), ".ax-fabric", "mcp-token");
+  return join(homedir(), AX_FABRIC_HOME_DIR, MCP_TOKEN_FILENAME);
 }
 
 function toBase62(buf: Buffer): string {
@@ -36,7 +37,7 @@ export function generateToken(): string {
 /** Write token to disk at `~/.ax-fabric/mcp-token` with `0600` permissions. */
 export function writeToken(token: string): void {
   const filePath = tokenFilePath();
-  const dir = join(homedir(), ".ax-fabric");
+  const dir = join(homedir(), AX_FABRIC_HOME_DIR);
   if (!existsSync(dir)) {
     mkdirSync(dir, { recursive: true });
   }
@@ -46,7 +47,7 @@ export function writeToken(token: string): void {
 
 /** Read token from `AX_FABRIC_MCP_TOKEN` env var or `~/.ax-fabric/mcp-token` file. */
 export function readToken(): string | null {
-  const envToken = process.env["AX_FABRIC_MCP_TOKEN"];
+  const envToken = process.env[ENV_MCP_TOKEN];
   if (envToken && envToken.trim().length > 0) {
     return envToken.trim();
   }

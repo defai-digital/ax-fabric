@@ -10,6 +10,7 @@ import {
   DEFAULT_EMBED_BATCH_SIZE as DEFAULT_BATCH_SIZE,
   DEFAULT_EMBED_TIMEOUT_MS as DEFAULT_TIMEOUT_MS,
   DEFAULT_EMBED_MAX_CONCURRENCY as DEFAULT_MAX_CONCURRENCY,
+  ENV_EMBEDDING_API_KEY,
 } from "../constants.js";
 
 export interface HttpEmbedderOptions {
@@ -57,7 +58,7 @@ export class HttpEmbedder implements EmbedderProvider {
     this.baseUrl = options.baseUrl.replace(/\/+$/, "");
     this.modelId = options.modelId;
     this.dimension = options.dimension;
-    this.apiKey = options.apiKey ?? process.env["EMBEDDING_API_KEY"];
+    this.apiKey = options.apiKey ?? process.env[ENV_EMBEDDING_API_KEY];
     this.batchSize = options.batchSize ?? DEFAULT_BATCH_SIZE;
     this.timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
     this.maxConcurrency = options.maxConcurrency ?? DEFAULT_MAX_CONCURRENCY;

@@ -13,6 +13,7 @@ import { homedir } from "node:os";
 
 import type { Command } from "commander";
 import { AkiDB } from "@ax-fabric/akidb";
+import { AX_FABRIC_HOME_DIR, DAEMON_STATUS_FILENAME } from "../constants.js";
 
 import { loadConfig, resolveConfigPath, resolveDataRoot } from "./config-loader.js";
 import { createEmbedderFromConfig } from "./create-embedder.js";
@@ -41,7 +42,7 @@ interface DaemonStatus {
 function writeStatus(axHome: string, status: DaemonStatus): void {
   try {
     if (!existsSync(axHome)) mkdirSync(axHome, { recursive: true });
-    writeFileSync(join(axHome, "status.json"), JSON.stringify(status, null, 2), "utf-8");
+    writeFileSync(join(axHome, DAEMON_STATUS_FILENAME), JSON.stringify(status, null, 2), "utf-8");
   } catch {
     // Non-fatal — if we can't write the status file, continue running.
   }
@@ -72,7 +73,7 @@ export function registerDaemonCommand(program: Command): void {
       const configPath = opts.config ?? resolveConfigPath();
       const config = loadConfig(configPath);
       const dataRoot = resolveDataRoot(config);
-      const axHome = join(homedir(), ".ax-fabric");
+      const axHome = join(homedir(), AX_FABRIC_HOME_DIR);
 
       const dataFolder = config.ingest.sources[0]?.path ?? dataRoot;
       const baseStatus: Omit<DaemonStatus, "status" | "last_sync_at" | "total_files" | "indexed_files" | "pending_files" | "error_files"> = {

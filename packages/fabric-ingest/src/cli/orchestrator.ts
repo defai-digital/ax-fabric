@@ -2,6 +2,17 @@ import type { Command } from "commander";
 
 import { createOrchestratorServer } from "../orchestrator/server.js";
 import { loadConfig, resolveToken } from "./config-loader.js";
+import {
+  DEFAULT_LOCALHOST,
+  DEFAULT_PUBLIC_PORT,
+  DEFAULT_INTERNAL_PORT,
+  DEFAULT_HEARTBEAT_INTERVAL_MS,
+  DEFAULT_WORKER_TTL_MS,
+  DEFAULT_RETRY_AFTER_SECS,
+  ORCHESTRATOR_QUEUE_MAX,
+  ORCHESTRATOR_QUEUE_DEPTH,
+  ORCHESTRATOR_QUEUE_WAIT_MS,
+} from "../constants.js";
 
 export function registerOrchestratorCommand(program: Command): void {
   program
@@ -10,20 +21,20 @@ export function registerOrchestratorCommand(program: Command): void {
     .command("start")
     .description("Start public/internal worker orchestration APIs")
     .option("-c, --config <path>", "Config file path")
-    .option("--public-host <host>", "Public API host (default: config.orchestrator.public_host or 127.0.0.1)")
-    .option("--public-port <port>", "Public API port (default: config.orchestrator.public_port or 18080)")
-    .option("--internal-host <host>", "Internal worker API host (default: config.orchestrator.internal_host or 127.0.0.1)")
-    .option("--internal-port <port>", "Internal worker API port (default: config.orchestrator.internal_port or 19090)")
+    .option("--public-host <host>", `Public API host (default: config.orchestrator.public_host or ${DEFAULT_LOCALHOST})`)
+    .option("--public-port <port>", `Public API port (default: config.orchestrator.public_port or ${DEFAULT_PUBLIC_PORT})`)
+    .option("--internal-host <host>", `Internal worker API host (default: config.orchestrator.internal_host or ${DEFAULT_LOCALHOST})`)
+    .option("--internal-port <port>", `Internal worker API port (default: config.orchestrator.internal_port or ${DEFAULT_INTERNAL_PORT})`)
     .option("--auth-token <token>", "Auth token for internal/admin APIs")
     .option("--auth-token-env <env>", "Env var name containing auth token")
-    .option("--heartbeat-ms <ms>", "Heartbeat interval hint (ms)", "5000")
-    .option("--ttl-ms <ms>", "Worker TTL before eviction (ms)", "15000")
+    .option("--heartbeat-ms <ms>", "Heartbeat interval hint (ms)", String(DEFAULT_HEARTBEAT_INTERVAL_MS))
+    .option("--ttl-ms <ms>", "Worker TTL before eviction (ms)", String(DEFAULT_WORKER_TTL_MS))
     .option("--dispatch-policy <name>", "Dispatch policy: least_inflight|weighted_round_robin|model_affinity", "least_inflight")
-    .option("--queue-max <n>", "Max concurrent forwarded requests", "128")
-    .option("--queue-depth <n>", "Max queued requests", "256")
-    .option("--queue-wait-ms <ms>", "Queue wait timeout (ms)", "10000")
+    .option("--queue-max <n>", "Max concurrent forwarded requests", String(ORCHESTRATOR_QUEUE_MAX))
+    .option("--queue-depth <n>", "Max queued requests", String(ORCHESTRATOR_QUEUE_DEPTH))
+    .option("--queue-wait-ms <ms>", "Queue wait timeout (ms)", String(ORCHESTRATOR_QUEUE_WAIT_MS))
     .option("--queue-policy <name>", "Queue overload policy: reject|shed_oldest", "reject")
-    .option("--retry-after-secs <n>", "Retry-After seconds for 429 responses", "5")
+    .option("--retry-after-secs <n>", "Retry-After seconds for 429 responses", String(DEFAULT_RETRY_AFTER_SECS))
     .action(async (opts: {
       config?: string;
       publicHost?: string;
@@ -43,10 +54,10 @@ export function registerOrchestratorCommand(program: Command): void {
     }) => {
       const config = loadConfig(opts.config);
       const orch = config.orchestrator;
-      const publicHost = opts.publicHost ?? orch?.public_host ?? "127.0.0.1";
-      const publicPort = parseInt(opts.publicPort ?? String(orch?.public_port ?? 18080), 10);
-      const internalHost = opts.internalHost ?? orch?.internal_host ?? "127.0.0.1";
-      const internalPort = parseInt(opts.internalPort ?? String(orch?.internal_port ?? 19090), 10);
+      const publicHost = opts.publicHost ?? orch?.public_host ?? DEFAULT_LOCALHOST;
+      const publicPort = parseInt(opts.publicPort ?? String(orch?.public_port ?? DEFAULT_PUBLIC_PORT), 10);
+      const internalHost = opts.internalHost ?? orch?.internal_host ?? DEFAULT_LOCALHOST;
+      const internalPort = parseInt(opts.internalPort ?? String(orch?.internal_port ?? DEFAULT_INTERNAL_PORT), 10);
       const authToken = resolveToken({
         token: opts.authToken ?? orch?.auth_token,
         token_env: opts.authTokenEnv ?? orch?.auth_token_env,
