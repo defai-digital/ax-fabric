@@ -128,8 +128,9 @@ export function registerEvalCommand(program: Command): void {
           let semanticAvailable = false;
 
           if (existsSync(semanticDbPath)) {
+            let semanticStore: SemanticStore | null = null;
             try {
-              const semanticStore = new SemanticStore(semanticDbPath);
+              semanticStore = new SemanticStore(semanticDbPath);
               const lookups = semanticStore.listPublishedUnitLookups(semanticCollectionId);
               if (lookups.length > 0) {
                 for (const lookup of lookups) {
@@ -137,9 +138,10 @@ export function registerEvalCommand(program: Command): void {
                 }
                 semanticAvailable = true;
               }
-              semanticStore.close();
             } catch {
               // SemanticStore not available
+            } finally {
+              semanticStore?.close();
             }
           }
 

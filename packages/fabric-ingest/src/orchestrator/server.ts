@@ -392,7 +392,7 @@ async function readRawBody(req: IncomingMessage): Promise<Buffer> {
     const buf = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
     totalSize += buf.length;
     if (totalSize > MAX_BODY_BYTES) {
-      req.socket.destroy();
+      req.socket?.destroy();
       throw new BadRequestError("request body too large (max 10 MB)");
     }
     chunks.push(buf);

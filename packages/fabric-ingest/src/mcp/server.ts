@@ -79,7 +79,7 @@ export function createMcpServer(options?: McpServerOptions): {
 
   const close = async (): Promise<void> => {
     await embedder.close?.().catch(() => undefined);
-    db.close();
+    try { db.close(); } catch { /* ignore close errors during shutdown */ }
   };
 
   return { server, start, close };
