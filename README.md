@@ -1,23 +1,73 @@
 # AX Fabric
 
-Local-first vector database and document ingestion pipeline.
+Local-first knowledge fabric for grounded AI agents.
 
 Status: ✅ Active Development | pnpm Workspace | Rust + TypeScript | macOS + Linux
 
-> 🎯 What AX Fabric Does: Runs your entire retrieval stack locally — HNSW vector search, BM25 full-text, hybrid ranking, and incremental document ingestion — with no cloud dependency and no data leaving your machine.
+> 🎯 What AX Fabric Is: The product-level knowledge, retrieval, and memory layer for grounded AI agents. It turns local files into searchable, MCP-accessible context without sending your data to the cloud.
 
-> 💡 Why Teams Use It: Drop-in embedder support (Cloudflare, OpenAI-compatible, local ax-serving), MCP-native tooling for AI agents, and a daemon that keeps your index current automatically.
+> 💡 How It Is Positioned: AX Fabric is the primary product. `ax-serving` is an optional serving backend used by AX Fabric for local embeddings, model execution, routing, and deployment.
 
 ---
 
+## Positioning
+
+AX Fabric is not just a vector database, and it is not trying to be a full agent framework.
+
+AX Fabric is the local-first knowledge fabric for AI agents:
+
+- **Knowledge layer** — ingest local documents, normalize them, chunk them, and keep them current.
+- **Retrieval layer** — search with vector, keyword, or hybrid retrieval from one local stack.
+- **Memory layer** — expose grounded context that agents and AI tools can reuse consistently.
+- **Integration layer** — surface the same knowledge through CLI, TypeScript, Python, and MCP.
+
+This means the product story is:
+
+- **AX Fabric** = the product users adopt for local knowledge, retrieval, and memory.
+- **ax-serving** = a supporting execution layer that AX Fabric can use when local model serving is needed.
+
+If you are evaluating the project, the simplest mental model is:
+
+> AX Fabric gives AI agents a local knowledge fabric.  
+> ax-serving helps power parts of that fabric, but AX Fabric is the product.
+
 ## Why AX Fabric
 
-Most retrieval stacks require a managed cloud vector database, a separate BM25 service, and a hosted ingestion pipeline. AX Fabric collapses all three into a single local process.
+Most AI retrieval stacks require a managed cloud vector database, a separate BM25 service, a hosted ingestion pipeline, and custom glue to expose that knowledge to AI tools. AX Fabric collapses those pieces into one local-first product.
 
 - **No lock-in** — data and config live at `~/.ax-fabric` and follow your machine.
 - **Incremental** — only changed files are re-processed; unchanged files are always skipped.
 - **Three search modes** — vector (HNSW ANN), keyword (BM25 via FTS5), and hybrid (RRF fusion).
 - **MCP-native** — 19 tools over stdio for direct AI agent integration without a REST server.
+- **Local-first by default** — your knowledge stays on your machine unless you choose an external embedding provider.
+
+## Where AX Fabric Fits
+
+```text
+Applications / AI tools / Agents
+        │
+        ▼
+     AX Fabric
+        │
+        ├── ingestion
+        ├── indexing
+        ├── retrieval
+        ├── memory / knowledge access
+        └── MCP-native integration
+        │
+        ▼
+     Optional execution backends
+        ├── Cloudflare Workers AI
+        ├── OpenAI-compatible embedding APIs
+        └── ax-serving for local serving / routing
+```
+
+Use AX Fabric when you want:
+
+- a local-first RAG and knowledge layer,
+- grounded context for agents and AI tools,
+- MCP-native access to private documents,
+- one product that combines ingestion, indexing, and retrieval.
 
 ---
 
