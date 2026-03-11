@@ -2,6 +2,10 @@
 
 Enterprise offline knowledge fabric for grounded AI systems.
 
+[![CI](https://github.com/defai-digital/ax-fabric/actions/workflows/ci.yml/badge.svg)](https://github.com/defai-digital/ax-fabric/actions/workflows/ci.yml)
+[![Node.js >=22](https://img.shields.io/badge/node-%3E%3D22-brightgreen)](https://nodejs.org)
+[![License: AGPL-3.0](https://img.shields.io/badge/license-AGPL--3.0--or--later-blue)](LICENSE)
+
 Status: ✅ Active Development | pnpm Workspace | Rust + TypeScript | macOS + Linux
 
 > 🎯 What AX Fabric Is: The product-level knowledge, retrieval, memory, and context layer for enterprise offline AI systems. It turns local files into searchable, MCP-accessible context without sending your data to the cloud.
@@ -90,7 +94,7 @@ This is the intended product stack:
 - users operate it through **ax-cli** or **ax-studio**,
 - AX Fabric can call **ax-serving** when local serving infrastructure is needed.
 
-For the recommended `v1.2.x` product-family architecture and evaluation path, see [STACK.md](./STACK.md). For `v1.3` local-stack operability guidance, see [OPERATIONS.md](./OPERATIONS.md). For `v1.4` retrieval-quality workflows, see [SEARCH_QUALITY.md](./SEARCH_QUALITY.md).
+For the recommended `v1.2.x` product-family architecture and evaluation path, see [STACK.md](./STACK.md). For `v1.3` local-stack operability guidance, see [OPERATIONS.md](./OPERATIONS.md). For `v1.4` retrieval-quality workflows, see [SEARCH_QUALITY.md](./SEARCH_QUALITY.md). For `v1.5` memory and context workflows, see [MEMORY.md](./MEMORY.md).
 
 ---
 
@@ -309,6 +313,7 @@ Claude Desktop config:
 - `ax-fabric ingest daemon start` / `status` / `stop`
 - `ax-fabric search <query> [--mode vector|keyword|hybrid] [--top-k N]`
 - `ax-fabric eval <fixture.json> [--json]`
+- `ax-fabric memory put|list|show|delete|assemble`
 - `ax-fabric mcp server` / `token show` / `token generate`
 - `ax-fabric orchestrator start`
 - `ax-fabric doctor [--check-serving]`
@@ -362,7 +367,7 @@ Embedder API keys use env-var indirection in `config.yaml`. Set `api_key_env: MY
 ```bash
 pnpm install
 pnpm build        # build all packages
-pnpm test         # vitest run (625 unit tests)
+pnpm test         # vitest run (1000 TypeScript tests across 50 test files)
 pnpm lint         # eslint packages/
 pnpm typecheck    # tsc -b
 
@@ -375,6 +380,48 @@ cd packages/akidb-native && cargo test
 ```
 
 Live integration tests require `CLOUDFLARE_API_TOKEN` and are skipped otherwise.
+
+---
+
+## Testing
+
+AX Fabric has two independent test layers that run together in CI on every push and pull request.
+
+### TypeScript tests (vitest)
+
+1000 tests across 50 test files, covering the full product stack:
+
+| Layer | What is tested |
+|---|---|
+| `contracts` | Zod schema validation, all record and collection types |
+| `akidb` | Collection lifecycle, upsert, search (vector / keyword / hybrid), compaction, metadata filters, explain output |
+| `fabric-ingest` | All 15 format extractors, chunker strategies, embedder providers, ingestion pipeline (incremental, idempotent, error isolation), daemon compaction policy, MCP server validation, CLI commands, orchestrator server |
+
+Run the full suite:
+
+```bash
+pnpm test                              # all tests
+npx vitest run packages/akidb/        # one package
+npx vitest run -t "hybrid search"     # by test name pattern
+```
+
+Live integration tests (e2e against Cloudflare Workers AI) are automatically skipped unless `CLOUDFLARE_API_TOKEN` is set.
+
+### Rust unit tests (cargo)
+
+102 unit tests inside the native NAPI engine, covering:
+
+- HNSW graph construction and ANN search (cosine, L2, dot)
+- WAL write, flush, rotation, crash recovery, and CRC32 framing
+- Segment builder, binary format v2, checksum
+- Compaction: tombstone filtering, segment merge, archive
+- Metadata store (rusqlite): collections, segments, manifests, tombstones, FTS5 keyword index
+- Storage backend: put/get/delete, SHA-256 sidecar validation, path-traversal guard
+- BM25 full-text search (FTS5) and Reciprocal Rank Fusion
+
+```bash
+cd packages/akidb-native && cargo test
+```
 
 ---
 

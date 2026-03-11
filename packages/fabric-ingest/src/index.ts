@@ -43,6 +43,16 @@ export {
   type BatchPublisherOptions,
 } from "./publisher/index.js";
 
+// ─── Layer 2.7b: Memory Store ──────────────────────────────────────────────
+export {
+  MemoryStore,
+  type MemoryKind,
+  type MemoryRecord,
+  type PutMemoryInput,
+  type ListMemoryOptions,
+  type AssembleContextOptions,
+} from "./memory/index.js";
+
 // ─── Layer 2.8: Job Registry ───────────────────────────────────────────────
 export {
   JobRegistry,

@@ -11,6 +11,7 @@ Before you begin, keep the product roles clear:
 For the overall product-family architecture, see [STACK.md](./STACK.md).
 For local-stack operating guidance, see [OPERATIONS.md](./OPERATIONS.md).
 For retrieval-quality and explainability workflows, see [SEARCH_QUALITY.md](./SEARCH_QUALITY.md).
+For memory and context workflows, see [MEMORY.md](./MEMORY.md).
 
 ## Prerequisites
 

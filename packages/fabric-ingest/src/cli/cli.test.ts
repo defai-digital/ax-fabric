@@ -28,6 +28,7 @@ import { registerIngestStatusCommand } from "./ingest-status.js";
 import { registerSearchCommand } from "./search.js";
 import { registerDoctorCommand } from "./doctor.js";
 import { registerEvalCommand } from "./eval.js";
+import { registerMemoryCommand } from "./memory.js";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -994,6 +995,155 @@ describe("CLI commands", () => {
       expect(output).toContain("\"totals\"");
       expect(output).toContain("\"mode\": \"hybrid\"");
       expect(output).toContain("\"cases\"");
+    });
+
+    it("reports a miss when expected source is not in results", async () => {
+      writeFileSync(
+        join(sourceDir, "eval-miss.txt"),
+        "This document is about solar panels and renewable energy.",
+      );
+
+      (mockConfig as { ingest: { sources: Array<{ path: string }> } }).ingest.sources = [
+        { path: sourceDir },
+      ];
+
+      const runProgram = new Command();
+      runProgram.exitOverride();
+      const runIngest = runProgram.command("ingest");
+      registerIngestRunCommand(runIngest);
+      const runLogSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+      await runProgram.parseAsync(["node", "test", "ingest", "run"]);
+      runLogSpy.mockRestore();
+
+      // Query that will not match "solar panels" in keyword or vector mode
+      // — the expected source is a completely different non-existent file.
+      const fixturePath = join(workDir, "eval-miss-fixture.json");
+      writeFileSync(
+        fixturePath,
+        JSON.stringify({
+          cases: [
+            {
+              query: "authentication token expiry",
+              expected_sources: ["/nonexistent/path/that/will/never/match.txt"],
+            },
+          ],
+        }, null, 2),
+        "utf-8",
+      );
+
+      const evalProgram = new Command();
+      evalProgram.exitOverride();
+      registerEvalCommand(evalProgram);
+
+      const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+      await evalProgram.parseAsync(["node", "test", "eval", fixturePath, "--json"]);
+      const output = logSpy.mock.calls.map((c) => c.join(" ")).join("\n");
+      logSpy.mockRestore();
+
+      const parsed = JSON.parse(output) as {
+        totals: Array<{ mode: string; hitAtK: number; missAtK: number; hitRate: number }>;
+      };
+      for (const entry of parsed.totals) {
+        expect(entry.missAtK).toBeGreaterThan(0);
+        expect(entry.hitRate).toBe(0);
+      }
+    });
+  });
+
+  describe("memory", () => {
+    it("stores, lists, and assembles memory records", async () => {
+      const memoryProgram = new Command();
+      memoryProgram.exitOverride();
+      registerMemoryCommand(memoryProgram);
+
+      const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+
+      await memoryProgram.parseAsync([
+        "node",
+        "test",
+        "memory",
+        "put",
+        "--session",
+        "session-1",
+        "--text",
+        "Remember the deployment window is Friday night.",
+      ]);
+
+      await memoryProgram.parseAsync([
+        "node",
+        "test",
+        "memory",
+        "put",
+        "--session",
+        "session-1",
+        "--kind",
+        "long-term",
+        "--text",
+        "Primary policy owner is the platform team.",
+      ]);
+
+      await memoryProgram.parseAsync([
+        "node",
+        "test",
+        "memory",
+        "list",
+        "--session",
+        "session-1",
+      ]);
+
+      await memoryProgram.parseAsync([
+        "node",
+        "test",
+        "memory",
+        "assemble",
+        "--session",
+        "session-1",
+      ]);
+
+      const output = logSpy.mock.calls.map((c) => c.join(" ")).join("\n");
+      logSpy.mockRestore();
+
+      expect(output).toContain("Stored memory");
+      expect(output).toContain("deployment window");
+      expect(output).toContain("platform team");
+    });
+
+    it("supports JSON output and deletion", async () => {
+      const memoryProgram = new Command();
+      memoryProgram.exitOverride();
+      registerMemoryCommand(memoryProgram);
+
+      const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+
+      await memoryProgram.parseAsync([
+        "node",
+        "test",
+        "memory",
+        "put",
+        "--session",
+        "session-2",
+        "--text",
+        "JSON memory record",
+        "--json",
+      ]);
+
+      const putOutput = logSpy.mock.calls.map((c) => c.join(" ")).join("\n");
+      const parsed = JSON.parse(putOutput) as { id: string };
+      logSpy.mockClear();
+
+      await memoryProgram.parseAsync([
+        "node",
+        "test",
+        "memory",
+        "delete",
+        parsed.id,
+      ]);
+
+      const deleteOutput = logSpy.mock.calls.map((c) => c.join(" ")).join("\n");
+      logSpy.mockRestore();
+
+      expect(parsed.id).toBeTruthy();
+      expect(deleteOutput).toContain("Deleted memory");
     });
   });
 });

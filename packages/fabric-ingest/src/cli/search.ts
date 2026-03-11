@@ -14,6 +14,7 @@ import { loadConfig, resolveConfigPath, resolveDataRoot } from "./config-loader.
 import { createEmbedderFromConfig } from "./create-embedder.js";
 import type { LlmProvider } from "@ax-fabric/contracts";
 import { createLlmFromConfig } from "./create-llm.js";
+import { MemoryStore } from "../memory/index.js";
 
 /** Expand a leading `~` to the current user's home directory. */
 function expandTilde(p: string): string {
@@ -31,12 +32,16 @@ export function registerSearchCommand(program: Command): void {
     .option("--mode <mode>", "Search mode: vector | keyword | hybrid", "vector")
     .option("--explain", "Include per-result scoring breakdown and chunk previews")
     .option("--json", "Print machine-readable JSON output for evaluation workflows")
+    .option("--session <id>", "Session ID for assembling stored memory context")
+    .option("--workflow <id>", "Workflow ID for narrowing stored memory context")
     .option("--answer", "Generate an answer from retrieved chunks (requires LLM config)")
     .action(async (query: string, opts: {
       topK: string;
       mode?: string;
       explain?: boolean;
       json?: boolean;
+      session?: string;
+      workflow?: string;
       answer?: boolean;
     }) => {
       try {
@@ -200,17 +205,30 @@ export function registerSearchCommand(program: Command): void {
             })
             .filter((c): c is string => c !== null);
 
-          if (chunks.length === 0) {
+          const memoryStore = new MemoryStore(join(dataRoot, "memory.json"));
+          const assembledMemory = opts.session
+            ? memoryStore.assembleContext({
+              sessionId: opts.session,
+              workflowId: opts.workflow,
+              limit: 20,
+            })
+            : { entries: [], text: "" };
+
+          if (chunks.length === 0 && assembledMemory.entries.length === 0) {
             console.log(
               "Note: No chunk text available for answer generation.\n" +
-              "Ensure chunks were ingested with store_chunk_text: true in your config.",
+              "Ensure chunks were ingested with store_chunk_text: true in your config, or provide session memory.",
             );
           } else {
             const context = chunks.join("\n\n---\n\n");
+            const memoryContext = assembledMemory.text.trim();
             const prompt =
               `You are a helpful assistant. Answer the question using only the provided context. ` +
               `If the answer cannot be found in the context, say so.\n\n` +
-              `Context:\n\n${context}\n\n` +
+              (memoryContext
+                ? `Memory context:\n\n${memoryContext}\n\n`
+                : "") +
+              `Retrieved context:\n\n${context}\n\n` +
               `Question: ${query}\n\n` +
               `Answer:`;
 

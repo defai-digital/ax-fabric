@@ -1,5 +1,22 @@
 # Changelog
 
+## v1.5.0
+
+Memory and context backbone release.
+
+### Highlights
+
+- Added a durable local memory store with short-term and long-term memory records
+- Added `ax-fabric memory` commands for put/list/show/delete/assemble workflows
+- Added session and workflow-scoped context assembly
+- Integrated assembled memory context into `search --answer` flows
+- Added `MEMORY.md` to document the `v1.5` memory model and operator workflow
+
+### Notes
+
+- Use `ax-fabric memory assemble --session <id>` to build durable context
+- Use `ax-fabric search ... --answer --session <id>` to combine memory context with retrieved document context
+
 ## v1.4.0
 
 Retrieval quality and explainability release.
