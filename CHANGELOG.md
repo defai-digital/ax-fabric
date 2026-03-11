@@ -1,5 +1,22 @@
 # Changelog
 
+## v1.5.1
+
+Patch release for `v1.5`.
+
+### Highlights
+
+- Fixed MCP keyword search so `fabric_search` no longer requires embeddings in `mode: "keyword"`
+- Fixed MCP server shutdown to close the embedder/provider cleanly on startup failure and signal-driven exit
+- Fixed memory record writes so reusing the same `id` updates the existing record instead of duplicating it
+- Fixed `ax-fabric memory` limit parsing and normalized invalid `--limit` input to the standard CLI error path
+- Added MCP and memory regression coverage for the new bugfix paths
+
+### Notes
+
+- `v1.5.0` remains the feature release for the memory/context backbone
+- `v1.5.1` is a stability patch release for MCP and memory workflows
+
 ## v1.5.0
 
 Memory and context backbone release.
