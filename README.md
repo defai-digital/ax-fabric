@@ -113,15 +113,15 @@ Jump to: [OSS](#oss) | [Business](#business) | [Enterprise](#enterprise)
 | 15-format document extractors | Yes | Yes | Yes |
 | Incremental, idempotent ingestion | Yes | Yes | Yes |
 | Continuous daemon mode | Yes | Yes | Yes |
-| MCP server (23 tools) | Yes | Yes | Yes |
-| Python bindings (PyO3) | Yes | Yes | Yes |
 | FP16 and SQ8 quantization | Yes | Yes | Yes |
 | Metadata filters and explain output | Yes | Yes | Yes |
+| MCP server (23 tools) | Yes | Yes | Yes |
+| Python bindings (PyO3) | Yes | Yes | Yes |
+| Semantic Distillation Engine | Yes | Yes | Yes |
 | Local / self-hosted deployment | Yes | Yes | Yes |
 | Single-node runtime | Yes | Yes | Yes |
-| Semantic Distillation Engine | Yes | Yes | Yes |
-| Semantic Distillation Engine Plus (distributed, large-scale) | No | No | Yes |
 | Multi-node Mac Grid | No | Yes | Yes |
+| Semantic Distillation Engine Plus (distributed, large-scale) | No | No | Yes |
 | Multi-node NVIDIA CUDA Grid | No | No | Yes |
 | Commercial licensing terms | No | Included | Included |
 | Contracted support / SLA | No | By agreement | By agreement |
