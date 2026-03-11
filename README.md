@@ -6,7 +6,7 @@ Status: ✅ Active Development | pnpm Workspace | Rust + TypeScript | macOS + Li
 
 > 🎯 What AX Fabric Is: The product-level knowledge, retrieval, and memory layer for grounded AI agents. It turns local files into searchable, MCP-accessible context without sending your data to the cloud.
 
-> 💡 How It Is Positioned: AX Fabric is the primary product. `ax-serving` is an optional serving backend used by AX Fabric for local embeddings, model execution, routing, and deployment.
+> 💡 How It Is Positioned: AX Fabric is the primary product. Users should access AX Fabric through its endpoints and companion interfaces: `ax-cli` for developer workflows, `ax-studio` for visual workflows, and `ax-serving` as an optional serving backend for local embeddings, model execution, routing, and deployment.
 
 ---
 
@@ -24,11 +24,14 @@ AX Fabric is the local-first knowledge fabric for AI agents:
 This means the product story is:
 
 - **AX Fabric** = the product users adopt for local knowledge, retrieval, and memory.
+- **ax-cli** = the developer-facing endpoint for setup, ingestion, search, and automation.
+- **ax-studio** = the visual endpoint for workspace, search, and management experiences.
 - **ax-serving** = a supporting execution layer that AX Fabric can use when local model serving is needed.
 
 If you are evaluating the project, the simplest mental model is:
 
 > AX Fabric gives AI agents a local knowledge fabric.  
+> ax-cli and ax-studio are the main ways to use it.  
 > ax-serving helps power parts of that fabric, but AX Fabric is the product.
 
 ## Why AX Fabric
@@ -44,7 +47,10 @@ Most AI retrieval stacks require a managed cloud vector database, a separate BM2
 ## Where AX Fabric Fits
 
 ```text
-Applications / AI tools / Agents
+Users / Applications / AI tools / Agents
+        │
+        ▼
+  ax-cli / ax-studio
         │
         ▼
      AX Fabric
@@ -68,6 +74,21 @@ Use AX Fabric when you want:
 - grounded context for agents and AI tools,
 - MCP-native access to private documents,
 - one product that combines ingestion, indexing, and retrieval.
+
+## Product Endpoints
+
+AX Fabric is the core product, but most users will reach it through one of these endpoints:
+
+- [`ax-cli`](https://github.com/defai-digital/ax-cli) for installation, setup, ingestion, search, and scripted developer workflows.
+- [`ax-studio`](https://github.com/defai-digital/ax-studio) for visual access, workspace management, and interactive retrieval workflows.
+- `ax-fabric` libraries and MCP interfaces when integrating directly into applications and AI tools.
+- `ax-serving` when AX Fabric needs a local serving backend for embeddings or model execution.
+
+This is the intended product stack:
+
+- users adopt **AX Fabric** as the knowledge product,
+- users operate it through **ax-cli** or **ax-studio**,
+- AX Fabric can call **ax-serving** when local serving infrastructure is needed.
 
 ---
 
