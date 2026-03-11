@@ -1,65 +1,68 @@
 # AX Fabric Quickstart
 
-This guide walks you from a fresh checkout to a first successful evaluation of AX Fabric as the knowledge and retrieval layer in an enterprise offline AI stack.
+This guide gets you from a fresh checkout to:
 
-Before you begin, keep the product roles clear:
+1. a working local AX Fabric install
+2. a successful ingest and search run
+3. an optional semantic review and publish workflow
+4. an optional MCP server for agent integration
 
-- `ax-fabric` is the core knowledge, retrieval, memory, and context layer.
-- `ax-cli` and `ax-studio` are the main user-facing endpoints around that layer.
-- `ax-serving` is an optional local backend for embeddings and model execution.
-
-For the overall product-family architecture, see [STACK.md](./STACK.md).
-For local-stack operating guidance, see [OPERATIONS.md](./OPERATIONS.md).
-For retrieval-quality and explainability workflows, see [SEARCH_QUALITY.md](./SEARCH_QUALITY.md).
-For memory and context workflows, see [MEMORY.md](./MEMORY.md).
-For semantic distillation workflows, see the [Semantic Distillation Engine](#semantic-distillation-engine) section below.
+If you only want one path, do **Path A** first.
 
 ## Prerequisites
 
 - Node.js `>=22`
-- pnpm `10.22` (`npm install -g pnpm`)
-- Rust toolchain (`curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh`)
+- pnpm `10.22`
+- Rust toolchain
 
-Validate your environment:
+Check your environment:
 
 ```bash
-node --version     # >=22
-pnpm --version     # >=10
+node --version
+pnpm --version
 rustc --version
 ```
 
----
+## Path A: First Successful Run
 
-## Path A: Evaluate AX Fabric Directly via CLI
-
-One command cycle: ingest a directory, search it, and confirm the core product layer works.
-
-### 1. Install + Build
+### 1. Install and build
 
 ```bash
 pnpm install
 pnpm build
-```
-
-Validate the CLI is available:
-
-```bash
 pnpm exec ax-fabric --help
 ```
 
-### 2. Initialize workspace
+### 2. Initialize the workspace
 
 ```bash
 pnpm exec ax-fabric init
 ```
 
-Creates `~/.ax-fabric/config.yaml` and `~/.ax-fabric/data/`.
+This creates:
+
+- `~/.ax-fabric/config.yaml`
+- `~/.ax-fabric/data/`
 
 ### 3. Configure an embedder
 
-Edit `~/.ax-fabric/config.yaml`. Three real options and one mock for testing.
+Edit `~/.ax-fabric/config.yaml`.
 
-**Option A: Cloudflare Workers AI** (recommended for cloud)
+For the fastest smoke test, use the mock embedder:
+
+```yaml
+akidb:
+  dimension: 128
+
+embedder:
+  type: local
+  model_id: mock-embed-v1
+  dimension: 128
+```
+
+For real retrieval quality, switch to a real embedder later.
+
+**Cloudflare Workers AI**
 
 ```yaml
 akidb:
@@ -69,7 +72,7 @@ embedder:
   type: cloudflare
   model_id: "@cf/baai/bge-large-en-v1.5"
   dimension: 1024
-  account_id: your-cloudflare-account-id
+  account_id: your-account-id
   api_key_env: CLOUDFLARE_API_TOKEN
 ```
 
@@ -77,7 +80,7 @@ embedder:
 export CLOUDFLARE_API_TOKEN=your-token
 ```
 
-**Option B: OpenAI-compatible HTTP endpoint**
+**OpenAI-compatible HTTP endpoint**
 
 ```yaml
 akidb:
@@ -95,134 +98,139 @@ embedder:
 export EMBEDDING_API_KEY=sk-...
 ```
 
-**Option C: Local model via ax-serving**
-
-Use this when you want a DEFAI-local backend for embeddings or model execution (e.g. [AX Serving](https://github.com/defai-digital/ax-serving)):
-
-```yaml
-akidb:
-  dimension: 1024
-
-embedder:
-  type: mcp
-  model_id: bge-large-en-v1.5
-  dimension: 1024
-  base_url: http://127.0.0.1:18080/v1/embeddings
-```
-
-**Option D: Mock embedder** (testing only, no real search quality)
-
-```yaml
-akidb:
-  dimension: 128
-
-embedder:
-  type: local
-  model_id: mock-embed-v1
-  dimension: 128
-```
-
-### 4. Add documents and preview changes
+### 4. Add documents
 
 ```bash
-pnpm exec ax-fabric ingest add ./my-docs
+pnpm exec ax-fabric ingest add ./docs
 pnpm exec ax-fabric ingest diff
 ```
 
-Supported file formats: `txt`, `md`, `pdf`, `docx`, `pptx`, `xlsx`, `csv`, `tsv`, `json`, `jsonl`, `yaml`, `html`, `rtf`, `sql`, `log`.
+Common supported file types:
+
+- `txt`
+- `md`
+- `pdf`
+- `docx`
+- `pptx`
+- `xlsx`
+- `csv`
+- `tsv`
+- `json`
+- `jsonl`
+- `yaml`
+- `html`
+- `rtf`
+- `sql`
+- `log`
 
 ### 5. Run ingestion
 
 ```bash
 pnpm exec ax-fabric ingest run
-```
-
-Ingestion is **incremental and idempotent** — only new, modified, or deleted files are processed. Unchanged files are always skipped. Re-running is always safe.
-
-Check status after ingestion:
-
-```bash
 pnpm exec ax-fabric ingest status
 ```
 
+The pipeline is incremental and idempotent:
+
+- new files are ingested
+- changed files are reprocessed
+- deleted files are tombstoned
+- unchanged files are skipped
+
 ### 6. Search
 
-Vector search (semantic, default):
+Vector search:
 
 ```bash
 pnpm exec ax-fabric search "how does authentication work?" --top-k 5
 ```
 
-Keyword search (BM25 / exact terms):
+Keyword search:
 
 ```bash
 pnpm exec ax-fabric search "JWT expiry" --mode keyword --top-k 10
 ```
 
-Hybrid search (vector + BM25, fused with Reciprocal Rank Fusion — best recall):
+Hybrid search:
 
 ```bash
 pnpm exec ax-fabric search "authentication token expiry" --mode hybrid --top-k 5
 ```
 
-Grounded answer generation:
+Explainable results:
 
 ```bash
-pnpm exec ax-fabric search "how do I deploy to production?" --answer
+pnpm exec ax-fabric search "authentication token expiry" --mode hybrid --explain
 ```
 
-At this point, you have validated the core AX Fabric layer:
+At this point AX Fabric is working as a local ingest and retrieval stack.
 
-- local documents were ingested,
-- retrieval works,
-- the system can serve as the knowledge backbone for higher-level interfaces such as `ax-cli` and `ax-studio`.
+## Path B: Semantic Workflow
 
----
+Use this when you want reviewed semantic artifacts, not just raw chunk retrieval.
 
-## Path B: Run as a Continuous Local Knowledge Service
-
-A long-running poll loop that detects and re-ingests file changes automatically. Use this when AX Fabric is serving a local workspace that changes over time.
-
-Follow steps 1–3 from Path A, then:
+### 1. Preview semantic units
 
 ```bash
-pnpm exec ax-fabric ingest daemon start
-pnpm exec ax-fabric ingest daemon status
-pnpm exec ax-fabric ingest daemon stop
+pnpm exec ax-fabric semantic preview ./docs/architecture.md
 ```
 
-The daemon:
-- Acquires a file lock so only one instance runs per data directory.
-- Handles `SIGINT`/`SIGTERM` by finishing the current cycle then exiting cleanly.
-- Handles `SIGHUP` by reloading config without restarting.
-- Logs structured events to `~/.ax-fabric/data/daemon.jsonl`.
+### 2. Store a semantic bundle
 
----
+```bash
+pnpm exec ax-fabric semantic store ./docs/architecture.md
+pnpm exec ax-fabric semantic bundles
+```
 
-## Path C: Expose AX Fabric to Local AI Tools over MCP
+### 3. Approve the bundle
 
-Expose AX Fabric as a tool provider over stdio for Claude, Gemini, and any MCP-compatible client.
+```bash
+pnpm exec ax-fabric semantic approve-store <bundle-id> \
+  --reviewer ops \
+  --min-quality 0.6 \
+  --duplicate-policy warn
+```
+
+### 4. Publish the bundle
+
+```bash
+pnpm exec ax-fabric semantic publish <bundle-id>
+```
+
+### 5. Search semantic artifacts
+
+```bash
+pnpm exec ax-fabric search "authentication token expiry" --semantic
+pnpm exec ax-fabric search "authentication token expiry" --fuse
+pnpm exec ax-fabric eval ./fixture.json --compare
+```
+
+### 6. Lifecycle commands
+
+```bash
+pnpm exec ax-fabric semantic republish <bundle-id>
+pnpm exec ax-fabric semantic rollback <bundle-id>
+pnpm exec ax-fabric semantic unpublish <bundle-id>
+```
+
+## Path C: MCP Server
+
+Use this when AX Fabric should serve tools to Claude, Gemini, or another MCP client.
+
+### 1. Start the server
 
 ```bash
 pnpm exec ax-fabric mcp server
 ```
 
-Token management:
+### 2. Generate a token
 
 ```bash
-pnpm exec ax-fabric mcp token show
 pnpm exec ax-fabric mcp token generate
+pnpm exec ax-fabric mcp token show
 ```
 
-Available tool groups:
-
-| Group | Count | Operations |
-|---|---|---|
-| `akidb_*` | 9 | Create / list / delete collections, upsert, search, compact, stats |
-| `fabric_*` | 10 | Ingest run / diff / status, daemon control, search with mode |
-| `fabric_memory_*` | 4 | Put / list / assemble / delete session and workflow memory records |
-
-Claude Desktop config:
+### 3. Example Claude Desktop config
 
 ```json
 {
@@ -232,276 +240,59 @@ Claude Desktop config:
       "args": ["exec", "ax-fabric", "mcp", "server"],
       "cwd": "/path/to/ax-fabric",
       "env": {
-        "AX_FABRIC_MCP_TOKEN": "<token from token show>"
+        "AX_FABRIC_MCP_TOKEN": "<token>"
       }
     }
   }
 }
 ```
 
-Use this path when AX Fabric is acting as the knowledge and context layer behind an AI tool or local agent workflow.
+High-value semantic MCP tools include:
 
----
+- `fabric_semantic_store_bundle`
+- `fabric_semantic_list_bundles`
+- `fabric_semantic_inspect_bundle`
+- `fabric_semantic_approve_bundle`
+- `fabric_semantic_publish_bundle`
 
-## Using AX Fabric with the Rest of the Stack
+## Useful Commands
 
-### ax-cli
-
-Use [`ax-cli`](https://github.com/defai-digital/ax-cli) when you want a developer or operator endpoint around AX Fabric for setup, scripted workflows, and automation.
-
-### ax-studio
-
-Use [`ax-studio`](https://github.com/defai-digital/ax-studio) when you want a visual workspace on top of AX Fabric for interactive retrieval and local AI workflows.
-
-### ax-serving
-
-Use [`ax-serving`](https://github.com/defai-digital/ax-serving) when AX Fabric needs a local embedding or model-serving backend under enterprise-controlled infrastructure.
-
-## Health and Diagnostics
-
-Use the built-in doctor command before troubleshooting deeper:
+Health check:
 
 ```bash
 pnpm exec ax-fabric doctor
 pnpm exec ax-fabric doctor --check-serving
 ```
 
-## First Evaluation Checklist
-
-You have completed the `v1.2.x` first evaluation path when:
-
-- AX Fabric is initialized locally,
-- a document directory has been ingested,
-- you can run vector, keyword, or hybrid search successfully,
-- you understand where `ax-cli`, `ax-studio`, and `ax-serving` fit in the stack.
-
----
-
-## Search Modes
-
-| Mode | Best For | Requires |
-|---|---|---|
-| `vector` (default) | Semantic meaning, conceptual similarity | `queryVector` |
-| `keyword` | Exact terms, lexical matching (BM25) | `queryText` |
-| `hybrid` | Balanced recall — fuses both with RRF | `queryVector` + `queryText` |
-
-Hybrid over-fetches `topK × 2` from each source before fusion. It typically gives the best recall for real-world queries. Use `--explain` to see per-result scores:
+Daemon mode:
 
 ```bash
-pnpm exec ax-fabric search "query" --mode hybrid --explain
+pnpm exec ax-fabric ingest daemon start
+pnpm exec ax-fabric ingest daemon status
+pnpm exec ax-fabric ingest daemon stop
 ```
 
-Use `--json` when you want to capture search results for repeatable evaluation:
+Memory and context:
 
 ```bash
-pnpm exec ax-fabric search "query" --mode hybrid --explain --json
+pnpm exec ax-fabric memory put --session demo --text "Important deployment note"
+pnpm exec ax-fabric memory assemble --session demo
 ```
-
-For fixture-based mode comparison:
-
-```bash
-pnpm exec ax-fabric eval ./eval-fixture.json
-pnpm exec ax-fabric eval ./eval-fixture.json --json
-```
-
-Once you have published semantic artifacts (see below), compare raw vs semantic retrieval quality directly:
-
-```bash
-pnpm exec ax-fabric eval ./eval-fixture.json --compare
-pnpm exec ax-fabric eval ./eval-fixture.json --compare --json
-```
-
----
-
-## Semantic Distillation Engine
-
-The Semantic Distillation Engine turns raw chunks into governed semantic units — titled, summarised, question-answered knowledge objects with grounded provenance — and publishes them into a dedicated AkiDB collection for direct retrieval.
-
-### Workflow
-
-```
-ingest run  →  chunks (raw layer)
-                   ↓
-         semantic store <file>  →  semantic.db (semantic truth)
-                   ↓
-        semantic approve-store  →  review decision persisted
-                   ↓
-          semantic publish      →  AkiDB (semantic-<collection>)
-                   ↓
-         search --semantic / --fuse / eval --compare
-```
-
-### Step 1 — Preview before committing
-
-```bash
-# Inspect what semantic units would be generated for a file
-pnpm exec ax-fabric semantic preview ./docs/architecture.md
-
-# Limit output and get machine-readable JSON
-pnpm exec ax-fabric semantic preview ./docs/architecture.md --limit 5 --json
-```
-
-### Step 2 — Distil and store in the canonical semantic store
-
-```bash
-# Distil and persist to semantic.db in one step
-pnpm exec ax-fabric semantic store ./docs/architecture.md
-
-# List all stored bundles with review and publication status
-pnpm exec ax-fabric semantic bundles
-
-# Inspect a specific bundle
-pnpm exec ax-fabric semantic show <bundle-id>
-```
-
-### Step 3 — Review and approve
-
-```bash
-# Approve a bundle (sets review status to approved in semantic.db)
-pnpm exec ax-fabric semantic approve-store <bundle-id> \
-  --reviewer ops \
-  --min-quality 0.6 \
-  --duplicate-policy warn
-```
-
-The `--min-quality` threshold (0–1) gates approval. Units below the threshold block approval. `--duplicate-policy reject` blocks bundles that contain duplicate semantic groups.
-
-### Step 4 — Publish into AkiDB
-
-```bash
-# Embed semantic units and publish into a dedicated AkiDB collection
-pnpm exec ax-fabric semantic publish <bundle-id>
-
-# Publish to a named collection (default: <config.collection>-semantic)
-pnpm exec ax-fabric semantic publish <bundle-id> --collection my-semantic
-```
-
-### Step 5 — Search and compare
-
-```bash
-# Search the semantic collection directly
-pnpm exec ax-fabric search "authentication token expiry" --semantic
-
-# Fuse raw chunks + semantic units with RRF (best of both layers)
-pnpm exec ax-fabric search "authentication token expiry" --fuse
-
-# Compare Hit@K: raw vs semantic, all three search modes
-pnpm exec ax-fabric eval ./eval-fixture.json --compare
-```
-
-The `--fuse` flag merges results from both collections using Reciprocal Rank Fusion. Each result is labeled `raw` or `semantic` so you can see which layer contributed each hit.
-
----
-
-## Metadata Filters
-
-Filters are applied during HNSW graph traversal (pre-filter), so no post-processing overhead. Supported operators:
-
-| Operator | Description |
-|---|---|
-| `{ field: value }` | Exact match |
-| `{ field: [v1, v2] }` | OR match (any of the values) |
-| `{ field: { $gt: n } }` | Greater than |
-| `{ field: { $gte: n } }` | Greater than or equal |
-| `{ field: { $lt: n } }` | Less than |
-| `{ field: { $lte: n } }` | Less than or equal |
-| `{ field: { $ne: v } }` | Not equal |
-| `{ field: { $in: [...] } }` | In set |
-| `{ field: { $nin: [...] } }` | Not in set |
-
-Simple equality filters use a bitmap index for fast lookup. Range operators fall back to brute-force scan.
-
----
-
-## Programmatic Use (TypeScript)
-
-```typescript
-import { AkiDB } from "@ax-fabric/akidb";
-
-const db = new AkiDB({ storagePath: "./my-db" });
-
-await db.createCollection({
-  collectionId: "docs",
-  dimension: 1024,
-  metric: "cosine",
-  embeddingModelId: "bge-large-en-v1.5",
-});
-
-await db.upsertBatch("docs", [
-  {
-    chunk_id: "doc1-chunk0",
-    doc_id: "doc1",
-    doc_version: "v1",
-    chunk_hash: "abc123",
-    pipeline_signature: "sig",
-    embedding_model_id: "bge-large-en-v1.5",
-    vector: Array.from(new Float32Array(1024)),
-    metadata: {
-      source_uri: "doc1.txt",
-      content_type: "txt",
-      page_range: null,
-      offset: 0,
-      table_ref: null,
-      created_at: new Date().toISOString(),
-    },
-    chunk_text: "The quick brown fox...",
-  },
-]);
-
-await db.flushWrites("docs");
-await db.publish("docs");
-
-const results = await db.search({
-  collectionId: "docs",
-  queryVector: new Float32Array(1024),
-  topK: 5,
-  mode: "hybrid",
-  queryText: "quick brown fox",
-  filters: { source_uri: { $in: ["doc1.txt", "doc2.txt"] } },
-});
-
-console.log(results);
-await db.close();
-```
-
----
-
-## Key Environment Variables
-
-| Variable | Description |
-|---|---|
-| `CLOUDFLARE_API_TOKEN` | API key for the Cloudflare Workers AI embedder |
-| `EMBEDDING_API_KEY` | API key for an OpenAI-compatible HTTP embedder |
-| `AX_FABRIC_MCP_TOKEN` | Bearer token for MCP server authentication |
-| `AX_FABRIC_DATA_ROOT` | Override the default data directory (`~/.ax-fabric/data`) |
-
-Config file: `~/.ax-fabric/config.yaml`. Created by `ax-fabric init`. Secrets are never stored in config — reference them by env-var name via `api_key_env`.
-
----
 
 ## Troubleshooting
 
-| Symptom | Fix |
-|---|---|
-| `Cannot find module '@ax-fabric/akidb-native-darwin-arm64'` | `cd packages/akidb-native && pnpm build` |
+| Problem | Fix |
+| --- | --- |
 | Native module fails to load | `pnpm install && pnpm build` |
-| Dimension mismatch error | `dimension` in `config.yaml` must match the embedding model's actual output (`bge-large-en-v1.5` → 1024, `text-embedding-3-small` → 1536) |
-| Search returns no results | Run `ingest status` — confirm files are `success`. Re-run `ingest run` if pending. |
-| `ingest status` reports ENOENT | Registry not initialised yet. Run `ingest run` at least once. |
-| MCP auth fails (`401`) | Run `mcp token show` and set `AX_FABRIC_MCP_TOKEN` in your client env |
-| Daemon won't start (lock error) | Run `ingest daemon status`. Kill the existing process or remove the stale lock. |
-| Embedding API returns 4xx | Verify the API key env var is exported and matches `api_key_env` in config |
+| Dimension mismatch | make `akidb.dimension` match the embedding model output |
+| Search returns no results | run `ingest status`, then rerun `ingest run` |
+| MCP auth fails | generate a token and export `AX_FABRIC_MCP_TOKEN` |
+| Daemon lock error | run `ingest daemon status` and stop the existing process |
 
----
+## What To Read Next
 
-## Next References
-
-- [README.md](README.md)
-- `~/.ax-fabric/config.yaml` — runtime configuration
-- [STACK.md](STACK.md) — product-family architecture
-- [OPERATIONS.md](OPERATIONS.md) — local-stack operating guidance
-- [SEARCH_QUALITY.md](SEARCH_QUALITY.md) — retrieval-quality and eval workflows
-- [MEMORY.md](MEMORY.md) — memory and context workflows
-- [LICENSE](LICENSE) — GNU AGPLv3-or-later
-- [LICENSING.md](LICENSING.md) — dual-license overview
-- [LICENSE-COMMERCIAL.md](LICENSE-COMMERCIAL.md) — Business and Enterprise commercial terms
+- [README.md](./README.md)
+- [OPERATIONS.md](./OPERATIONS.md)
+- [SEARCH_QUALITY.md](./SEARCH_QUALITY.md)
+- [MEMORY.md](./MEMORY.md)
+- [STACK.md](./STACK.md)
