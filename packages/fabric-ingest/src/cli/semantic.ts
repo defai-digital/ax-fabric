@@ -1,11 +1,17 @@
-import { resolve } from "node:path";
+import { createHash } from "node:crypto";
+import { join, resolve } from "node:path";
+import { homedir } from "node:os";
 
 import type { Command } from "commander";
+import { AkiDB } from "@ax-fabric/akidb";
+import type { Record as AkiRecord, SemanticBundle } from "@ax-fabric/contracts";
 
 import { SemanticDistiller } from "../semantic/index.js";
 import { SemanticReviewEngine } from "../semantic/index.js";
+import { SemanticStore } from "../semantic/index.js";
 
-import { loadConfig, resolveConfigPath } from "./config-loader.js";
+import { createEmbedderFromConfig } from "./create-embedder.js";
+import { loadConfig, resolveConfigPath, resolveDataRoot, type FabricConfig } from "./config-loader.js";
 
 export function registerSemanticCommand(program: Command): void {
   const semantic = program
@@ -154,6 +160,145 @@ export function registerSemanticCommand(program: Command): void {
         }
       }
     });
+
+  semantic
+    .command("store <file>")
+    .description("Create a semantic bundle from a file and store it in the canonical SQLite store")
+    .option("--db <path>", "Override semantic.db path")
+    .option("--strategy <strategy>", "Chunking strategy: auto | fixed | markdown | structured")
+    .option("--chunk-size <number>", "Override semantic distill chunk size")
+    .option("--overlap <ratio>", "Override semantic distill overlap ratio")
+    .option("--low-quality-threshold <number>", "Flag units below this quality score", "0.6")
+    .action(async (file: string, opts: StoredBundleOptions) => {
+      const { store, bundle } = await createStoredBundleFromCli(file, opts);
+      try {
+        store.upsertBundle(bundle);
+        console.log(`Stored semantic bundle ${bundle.bundle_id} in ${resolveSemanticDbPathFromConfig(opts.db)}`);
+      } finally {
+        store.close();
+      }
+    });
+
+  semantic
+    .command("bundles")
+    .description("List semantic bundles stored in the canonical SQLite store")
+    .option("--db <path>", "Override semantic.db path")
+    .option("--json", "Print machine-readable JSON output")
+    .action((opts: StoreInspectOptions) => {
+      const store = openSemanticStore(opts.db);
+      try {
+        const summaries = store.listBundles();
+        if (opts.json) {
+          console.log(JSON.stringify(summaries, null, 2));
+          return;
+        }
+        for (const summary of summaries) {
+          console.log(
+            `${summary.bundleId} status=${summary.reviewStatus} units=${String(summary.totalUnits)} `
+            + `avg_quality=${summary.averageQualityScore.toFixed(3)} published=${summary.publishedCollectionId ?? "no"}`,
+          );
+        }
+      } finally {
+        store.close();
+      }
+    });
+
+  semantic
+    .command("show <bundleId>")
+    .description("Show a stored semantic bundle from the canonical SQLite store")
+    .option("--db <path>", "Override semantic.db path")
+    .option("--json", "Print machine-readable JSON output")
+    .action((bundleId: string, opts: StoreInspectOptions) => {
+      const store = openSemanticStore(opts.db);
+      try {
+        const bundle = store.getBundle(bundleId);
+        if (!bundle) {
+          throw new Error(`Semantic bundle "${bundleId}" not found`);
+        }
+        if (opts.json) {
+          console.log(JSON.stringify(bundle, null, 2));
+          return;
+        }
+        printBundleDiagnostics(bundle);
+        if (bundle.review) {
+          console.log(`  Review status:    ${bundle.review.status}`);
+          console.log(`  Reviewer:         ${bundle.review.reviewer}`);
+        }
+      } finally {
+        store.close();
+      }
+    });
+
+  semantic
+    .command("approve-store <bundleId>")
+    .description("Approve or reject a stored semantic bundle and persist the decision")
+    .requiredOption("--reviewer <name>", "Reviewer identity to attach to the approval")
+    .option("--db <path>", "Override semantic.db path")
+    .option("--min-quality <number>", "Minimum quality score required for approval", "0.7")
+    .option("--duplicate-policy <policy>", "Duplicate policy: warn | reject", "reject")
+    .option("--notes <text>", "Optional review notes")
+    .action((bundleId: string, opts: ApproveStoreOptions) => {
+      const store = openSemanticStore(opts.db);
+      try {
+        const bundle = store.getBundle(bundleId);
+        if (!bundle) {
+          throw new Error(`Semantic bundle "${bundleId}" not found`);
+        }
+        const engine = new SemanticReviewEngine();
+        const reviewed = engine.approveBundle(bundle, {
+          reviewer: opts.reviewer,
+          minQualityScore: parseUnitInterval(opts.minQuality, "--min-quality"),
+          duplicatePolicy: parseDuplicatePolicy(opts.duplicatePolicy),
+          notes: opts.notes,
+        });
+        store.upsertBundle(reviewed);
+        console.log(`Stored review status: ${reviewed.review?.status}`);
+      } finally {
+        store.close();
+      }
+    });
+
+  semantic
+    .command("publish <bundleId>")
+    .description("Publish an approved stored semantic bundle into AkiDB")
+    .option("--db <path>", "Override semantic.db path")
+    .option("--collection <id>", "Target AkiDB collection (default: <config.collection>-semantic)")
+    .action(async (bundleId: string, opts: PublishOptions) => {
+      const config = loadConfig(resolveConfigPath());
+      const store = openSemanticStore(opts.db);
+      const embedder = createEmbedderFromConfig(config);
+      const akidbRoot = expandTilde(config.akidb.root);
+      const db = new AkiDB({ storagePath: akidbRoot });
+
+      try {
+        const bundle = store.getBundle(bundleId);
+        if (!bundle) {
+          throw new Error(`Semantic bundle "${bundleId}" not found`);
+        }
+        if (bundle.review?.status !== "approved") {
+          throw new Error(`Semantic bundle "${bundleId}" is not approved`);
+        }
+
+        const collectionId = opts.collection ?? `${config.akidb.collection}-semantic`;
+        ensureCollection(db, config, collectionId);
+        const records = await buildSemanticRecords(bundle, config, embedder);
+        await db.upsertBatch(collectionId, records);
+        const manifest = await db.publish(collectionId, {
+          embeddingModelId: config.embedder.model_id,
+          pipelineSignature: semanticPipelineSignature(bundle),
+        });
+        store.markPublished(bundleId, {
+          collectionId,
+          manifestVersion: manifest.version,
+          publishedAt: new Date().toISOString(),
+        });
+        console.log(`Published semantic bundle ${bundleId} to ${collectionId} manifest=${String(manifest.version)}`);
+      } finally {
+        db.close();
+        await embedder.close?.();
+        store.close();
+      }
+    });
 }
 
 interface PreviewOptions {
@@ -193,6 +338,28 @@ interface ApproveOptions {
   minQuality: string;
   duplicatePolicy: string;
   notes?: string;
+}
+
+interface StoredBundleOptions extends ReviewOptions {
+  db?: string;
+}
+
+interface StoreInspectOptions {
+  db?: string;
+  json?: boolean;
+}
+
+interface ApproveStoreOptions {
+  reviewer: string;
+  db?: string;
+  minQuality: string;
+  duplicatePolicy: string;
+  notes?: string;
+}
+
+interface PublishOptions {
+  db?: string;
+  collection?: string;
 }
 
 async function distillFromCli(
@@ -236,6 +403,17 @@ async function createBundleFromCli(
     overlapRatio,
     lowQualityThreshold: parseUnitInterval(opts.lowQualityThreshold, "--low-quality-threshold"),
   });
+}
+
+async function createStoredBundleFromCli(
+  file: string,
+  opts: StoredBundleOptions,
+): Promise<{ store: SemanticStore; bundle: SemanticBundle }> {
+  const bundle = await createBundleFromCli(file, opts);
+  return {
+    store: openSemanticStore(opts.db),
+    bundle,
+  };
 }
 
 function parsePositiveInteger(raw: string, flagName: string): number {
@@ -307,4 +485,86 @@ function defaultReviewedBundlePath(bundlePath: string): string {
     return `${bundlePath.slice(0, -5)}.reviewed.json`;
   }
   return `${bundlePath}.reviewed.json`;
+}
+
+function openSemanticStore(dbPath?: string): SemanticStore {
+  return new SemanticStore(resolveSemanticDbPathFromConfig(dbPath));
+}
+
+function resolveSemanticDbPathFromConfig(dbPath?: string): string {
+  if (dbPath) {
+    return resolve(dbPath);
+  }
+  const config = loadConfig(resolveConfigPath());
+  return join(resolveDataRoot(config), "semantic.db");
+}
+
+function expandTilde(p: string): string {
+  if (p === "~" || p.startsWith("~/")) {
+    return resolve(homedir(), p.slice(2));
+  }
+  return p;
+}
+
+function ensureCollection(db: AkiDB, config: FabricConfig, collectionId: string): void {
+  try {
+    db.getCollection(collectionId);
+  } catch (error) {
+    if (!(error instanceof Error && error.message.includes("not found"))) {
+      throw error;
+    }
+    db.createCollection({
+      collectionId,
+      dimension: config.akidb.dimension,
+      metric: config.akidb.metric,
+      embeddingModelId: config.embedder.model_id,
+    });
+  }
+}
+
+async function buildSemanticRecords(
+  bundle: SemanticBundle,
+  config: FabricConfig,
+  embedder: ReturnType<typeof createEmbedderFromConfig>,
+): Promise<AkiRecord[]> {
+  const texts = bundle.units.map((unit) => semanticUnitText(unit));
+  const vectors = await embedder.embed(texts);
+  const createdAt = new Date().toISOString();
+
+  return bundle.units.map((unit, index) => {
+    const text = texts[index]!;
+    const vector = vectors[index]!;
+    const span = unit.source_spans[0]!;
+    return {
+      chunk_id: `semantic:${unit.unit_id}`,
+      doc_id: bundle.doc_id,
+      doc_version: bundle.doc_version,
+      chunk_hash: digest(text),
+      pipeline_signature: semanticPipelineSignature(bundle),
+      embedding_model_id: config.embedder.model_id,
+      vector,
+      metadata: {
+        source_uri: span.source_uri,
+        content_type: span.content_type,
+        page_range: span.page_range,
+        offset: span.offset_start,
+        table_ref: span.table_ref,
+        chunk_label: span.chunk_label,
+        created_at: createdAt,
+      },
+      chunk_text: text,
+    };
+  });
+}
+
+function semanticUnitText(unit: SemanticBundle["units"][number]): string {
+  return `${unit.title}\n\n${unit.summary}\n\n${unit.answer}`;
+}
+
+function semanticPipelineSignature(bundle: SemanticBundle): string {
+  return `semantic-store:${bundle.distill_strategy}:${bundle.review?.status ?? "pending"}`;
+}
+
+function digest(input: string): string {
+  return createHash("sha256").update(input, "utf8").digest("hex");
 }

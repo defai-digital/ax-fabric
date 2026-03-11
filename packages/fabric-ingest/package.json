@@ -1,6 +1,6 @@
 {
   "name": "@ax-fabric/fabric-ingest",
-  "version": "1.7.0",
+  "version": "1.8.0",
   "license": "AGPL-3.0-or-later",
   "type": "module",
   "exports": {

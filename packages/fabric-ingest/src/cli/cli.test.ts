@@ -29,6 +29,8 @@ import { registerSearchCommand } from "./search.js";
 import { registerDoctorCommand } from "./doctor.js";
 import { registerEvalCommand } from "./eval.js";
 import { registerMemoryCommand } from "./memory.js";
+import { registerSemanticCommand } from "./semantic.js";
+import { SemanticStore } from "../semantic/index.js";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -1215,6 +1217,134 @@ describe("CLI commands", () => {
       exitSpy.mockRestore();
 
       expect(errOutput).toContain("--limit must be a positive integer");
+    });
+  });
+
+  // ─── semantic store ───────────────────────────────────────────────────────
+
+  describe("semantic store commands", () => {
+    it("stores a bundle and lists it with status=pending", async () => {
+      const sourceFile = join(sourceDir, "knowledge.txt");
+      writeFileSync(
+        sourceFile,
+        "Semantic storage persists knowledge units durably for operator review and publication.",
+        "utf-8",
+      );
+      const dbPath = join(dataRoot, "semantic.db");
+
+      const semanticProgram = new Command();
+      semanticProgram.exitOverride();
+      registerSemanticCommand(semanticProgram);
+
+      const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+
+      await semanticProgram.parseAsync([
+        "node", "test", "semantic", "store", sourceFile, "--db", dbPath,
+      ]);
+      await semanticProgram.parseAsync([
+        "node", "test", "semantic", "bundles", "--db", dbPath,
+      ]);
+
+      const output = logSpy.mock.calls.map((c) => c.join(" ")).join("\n");
+      logSpy.mockRestore();
+
+      expect(output).toContain("semantic.db");
+      expect(output).toContain("status=pending");
+    });
+
+    it("approve-store persists approved review and show reflects it", async () => {
+      const sourceFile = join(sourceDir, "policy.txt");
+      writeFileSync(
+        sourceFile,
+        "Enterprise AI governance policies must be versioned, auditable, and reproducible across deployments.",
+        "utf-8",
+      );
+      const dbPath = join(dataRoot, "semantic-approve.db");
+
+      const semanticProgram = new Command();
+      semanticProgram.exitOverride();
+      registerSemanticCommand(semanticProgram);
+
+      const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+
+      await semanticProgram.parseAsync([
+        "node", "test", "semantic", "store", sourceFile, "--db", dbPath,
+      ]);
+
+      const store = new SemanticStore(dbPath);
+      const summaries = store.listBundles();
+      const bundleId = summaries[0]!.bundleId;
+      store.close();
+
+      await semanticProgram.parseAsync([
+        "node", "test", "semantic", "approve-store", bundleId,
+        "--reviewer", "test-reviewer",
+        "--min-quality", "0.1",
+        "--duplicate-policy", "warn",
+        "--db", dbPath,
+      ]);
+
+      await semanticProgram.parseAsync([
+        "node", "test", "semantic", "show", bundleId, "--db", dbPath,
+      ]);
+
+      const output = logSpy.mock.calls.map((c) => c.join(" ")).join("\n");
+      logSpy.mockRestore();
+
+      expect(output).toContain("approved");
+      expect(output).toContain("test-reviewer");
+    });
+
+    it("publish pushes an approved bundle into AkiDB and marks it published", async () => {
+      const sourceFile = join(sourceDir, "spec.txt");
+      writeFileSync(
+        sourceFile,
+        "The publish workflow embeds semantic units and indexes them in AkiDB for retrieval serving.",
+        "utf-8",
+      );
+      const dbPath = join(dataRoot, "semantic-publish.db");
+
+      const semanticProgram = new Command();
+      semanticProgram.exitOverride();
+      registerSemanticCommand(semanticProgram);
+
+      const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+
+      await semanticProgram.parseAsync([
+        "node", "test", "semantic", "store", sourceFile, "--db", dbPath,
+      ]);
+
+      const store = new SemanticStore(dbPath);
+      const summaries = store.listBundles();
+      const bundleId = summaries[0]!.bundleId;
+      store.close();
+
+      await semanticProgram.parseAsync([
+        "node", "test", "semantic", "approve-store", bundleId,
+        "--reviewer", "ci",
+        "--min-quality", "0.1",
+        "--duplicate-policy", "warn",
+        "--db", dbPath,
+      ]);
+
+      await semanticProgram.parseAsync([
+        "node", "test", "semantic", "publish", bundleId,
+        "--db", dbPath,
+        "--collection", "test-col-semantic",
+      ]);
+
+      const output = logSpy.mock.calls.map((c) => c.join(" ")).join("\n");
+      logSpy.mockRestore();
+
+      expect(output).toContain("Published semantic bundle");
+      expect(output).toContain("test-col-semantic");
+
+      // verify publication state is persisted in the store
+      const verifyStore = new SemanticStore(dbPath);
+      const finalSummaries = verifyStore.listBundles();
+      verifyStore.close();
+      expect(finalSummaries[0]!.publishedCollectionId).toBe("test-col-semantic");
+      expect(finalSummaries[0]!.publishedManifestVersion).toBeTypeOf("number");
     });
   });
 });

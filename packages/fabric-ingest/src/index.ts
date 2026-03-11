@@ -81,6 +81,12 @@ export {
   SemanticDistiller,
   type SemanticDistillOptions,
   type SemanticDistillResult,
+  SemanticReviewEngine,
+  type SemanticReviewOptions,
+  type SemanticApprovalOptions,
+  SemanticStore,
+  type SemanticBundleSummary,
+  type SemanticPublicationState,
 } from "./semantic/index.js";
 
 // ─── Layer 3.0: MCP Server ─────────────────────────────────────────────────

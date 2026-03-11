@@ -1,5 +1,27 @@
 # Changelog
 
+## v1.8.0
+
+Canonical semantic store and publication release.
+
+### Highlights
+
+- Added a canonical SQLite-backed `SemanticStore` using Node.js 22 built-in `node:sqlite` for durable, idempotent storage of semantic bundles, units, source spans, review state, and publication metadata
+- Established the architecture boundary: SQLite (`semantic.db`) for semantic artifact truth, AkiDB for retrieval serving
+- Added `ax-fabric semantic store <file>` to create a bundle and persist it to the canonical store in one step
+- Added `ax-fabric semantic bundles` to list all stored bundles with review and publication status
+- Added `ax-fabric semantic show <bundleId>` to inspect a stored bundle with diagnostics
+- Added `ax-fabric semantic approve-store <bundleId>` to approve or reject a stored bundle and persist the decision without JSON file round-trips
+- Added `ax-fabric semantic publish <bundleId>` to embed semantic units and publish them as retrieval-ready records into a named AkiDB collection
+- Added publication state tracking: target collection, manifest version, and publication timestamp are persisted back into `semantic.db` after each publish
+- Added regression coverage for `SemanticStore` and all five new semantic store CLI commands
+
+### Notes
+
+- `v1.8.0` makes semantic distillation operationally real: bundles survive re-runs, review decisions are durable, and approved artifacts can be published into AkiDB
+- published semantic units live in a separate AkiDB collection (default: `<collection>-semantic`) alongside raw chunk records — retrieval fusion is the `v1.9` scope
+- JSON bundle file workflows from `v1.7.0` remain usable and backward compatible
+
 ## v1.7.0
 
 Semantic review and governance release.
