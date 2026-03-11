@@ -539,7 +539,10 @@ async function runConcurrent<T, R>(
   if (items.length === 0) return [];
 
   const limit = Math.max(1, Math.min(concurrency, items.length));
-  const results: Array<R | undefined> = new Array(items.length);
+  // Use a Symbol sentinel so a legitimate R = undefined result never triggers
+  // the completeness check below (a plain `undefined` slot would be a false positive).
+  const EMPTY = Symbol("empty");
+  const results: Array<R | typeof EMPTY> = new Array(items.length).fill(EMPTY);
   let nextIndex = 0;
 
   const worker = async () => {
@@ -553,7 +556,7 @@ async function runConcurrent<T, R>(
 
   await Promise.all(Array.from({ length: limit }, () => worker()));
   for (let i = 0; i < results.length; i++) {
-    if (results[i] === undefined) {
+    if (results[i] === EMPTY) {
       throw new Error(`runConcurrent produced incomplete results at index ${String(i)}`);
     }
   }

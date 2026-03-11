@@ -20,6 +20,9 @@ export type AcquireResult =
 interface Waiter {
   resolve: (value: "permit" | "shed" | "timeout") => void;
   timer: NodeJS.Timeout;
+  /** Set to true by releaseOne() before calling resolve("permit"). Prevents
+   *  a stale timeout callback from treating the waiter as still pending. */
+  promoted: boolean;
 }
 
 export class GlobalQueue {
@@ -56,16 +59,19 @@ export class GlobalQueue {
       }
     }
 
+    const waiter: Waiter = { resolve: null as unknown as Waiter["resolve"], timer: null as unknown as NodeJS.Timeout, promoted: false };
     const outcome = await new Promise<"permit" | "shed" | "timeout">((resolve) => {
-      const timer = setTimeout(() => {
-        const idx = this.waiters.findIndex((w) => w.resolve === resolve);
+      waiter.resolve = resolve;
+      waiter.timer = setTimeout(() => {
+        if (waiter.promoted) return; // releaseOne() already claimed this slot
+        const idx = this.waiters.findIndex((w) => w === waiter);
         if (idx >= 0) {
           this.waiters.splice(idx, 1);
         }
         resolve("timeout");
       }, this.config.waitMs);
 
-      this.waiters.push({ resolve, timer });
+      this.waiters.push(waiter);
     });
 
     if (outcome === "permit") {
@@ -105,6 +111,7 @@ export class GlobalQueue {
         break;
       }
       clearTimeout(waiter.timer);
+      waiter.promoted = true; // fence: prevent stale timeout callback from re-resolving
       waiter.resolve("permit");
       return;
     }

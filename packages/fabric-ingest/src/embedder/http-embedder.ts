@@ -146,11 +146,22 @@ export class HttpEmbedder implements EmbedderProvider {
       );
     }
     // Sort by index to guarantee correct ordering.
-    // Guard against APIs that omit the index field: NaN comparisons produce
-    // implementation-defined sort order, so fall back to 0 for missing values.
-    const sorted = [...json.data].sort(
-      (a, b) => (typeof a.index === "number" ? a.index : 0) - (typeof b.index === "number" ? b.index : 0),
-    );
+    // Distinguish two valid cases:
+    //   - All items have an index field  → sort by it.
+    //   - No items have an index field   → trust positional order.
+    // A partial mix (some have index, some don't) means we cannot reliably
+    // reconstruct the original order, so we reject the response.
+    const hasAnyIndex = json.data.some((d: { index?: unknown }) => typeof d.index === "number");
+    const hasAllIndex = json.data.every((d: { index?: unknown }) => typeof d.index === "number");
+    if (hasAnyIndex && !hasAllIndex) {
+      throw new AxFabricError(
+        "EMBED_ERROR",
+        "Embedding API response has partial index fields — cannot guarantee order",
+      );
+    }
+    const sorted = hasAllIndex
+      ? [...json.data].sort((a: { index: number }, b: { index: number }) => a.index - b.index)
+      : json.data;
     if (sorted.length !== texts.length) {
       throw new AxFabricError(
         "EMBED_ERROR",

@@ -107,6 +107,7 @@ export class EmbeddingScheduler implements EmbedderProvider {
   private nextTicketId = 0;
 
   private flushTimer: ReturnType<typeof setTimeout> | null = null;
+  private closed = false;
 
   // Metrics accumulators
   private batchesFired = 0;
@@ -202,8 +203,9 @@ export class EmbeddingScheduler implements EmbedderProvider {
     };
   }
 
-  /** Cancel any pending flush timer. Call when the pipeline is closing. */
+  /** Cancel any pending flush timer and reject all pending callers. Call when the pipeline is closing. */
   close(): Promise<void> {
+    this.closed = true;
     this.cancelTimer();
     const err = new AxFabricError(
       "EMBED_ERROR",
@@ -338,7 +340,7 @@ export class EmbeddingScheduler implements EmbedderProvider {
       }
     } finally {
       this.inFlight--;
-      this.drainQueue();
+      if (!this.closed) this.drainQueue();
     }
   }
 }
