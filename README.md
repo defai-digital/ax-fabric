@@ -11,38 +11,32 @@ Enterprise-first offline semantic platform for grounded AI systems.
 
 Status: ✅ Active Development | pnpm Workspace | Rust + TypeScript | macOS + Linux
 
-> 🎯 What AX Fabric Is: The product-level semantic, retrieval, memory, and context layer for enterprise offline AI systems. It turns local files into reviewable semantic artifacts and searchable context without sending your data to the cloud.
-
-> 💡 How It Is Positioned: AX Fabric is the primary product. Users should access AX Fabric through its endpoints and companion interfaces: `ax-cli` for developer workflows, `ax-studio` for visual workflows, and `ax-serving` as an optional serving backend for local embeddings, model execution, routing, and deployment.
+AX Fabric is an offline-first platform for ingesting enterprise knowledge, turning it into governed semantic artifacts, and serving it back through local retrieval, memory, and MCP workflows.
 
 ---
 
-## Positioning
+## Overview
 
-AX Fabric is not just a vector database, and it is not trying to be a full agent framework.
+AX Fabric sits between raw enterprise content and downstream AI applications.
 
-AX Fabric is the enterprise-first offline semantic platform for AI systems:
+It is designed for teams that need:
 
-- **Semantic layer** — ingest local documents, normalize them, distill semantic artifacts, and keep them reviewable.
-- **Retrieval layer** — search with vector, keyword, or hybrid retrieval from one local stack.
-- **Memory layer** — expose grounded context that agents and AI tools can reuse consistently.
-- **Governance layer** — store semantic truth separately from the retrieval index and control approval and publication workflows.
-- **Integration layer** — surface the same semantic and retrieval workflow through CLI, TypeScript, Python, and MCP.
+- local or air-gapped deployment,
+- a semantic workflow that can be reviewed and approved before publication,
+- retrieval, memory, and context delivery from the same stack,
+- direct integration into developer tools, applications, and MCP clients.
 
-This means the product story is:
+In practical terms, AX Fabric provides:
 
-- **AX Fabric** = the core product users adopt for enterprise knowledge, retrieval, memory, and context delivery.
-- **ax-cli** = the developer-facing endpoint for setup, ingestion, search, and automation.
-- **ax-studio** = the visual endpoint for workspace, search, and management experiences.
-- **ax-serving** = a supporting execution layer that AX Fabric can use when local model serving is needed.
+- **Semantic workflows** to distill documents into reviewable semantic artifacts.
+- **Canonical semantic storage** so semantic truth is separate from the retrieval index.
+- **Retrieval** with vector, keyword, and hybrid search.
+- **Memory and context assembly** for grounded AI applications and agents.
+- **Integration surfaces** through CLI, TypeScript, Python, and MCP.
 
-If you are evaluating the project, the simplest mental model is:
+AX Fabric is not just a vector database, and it is not trying to be a generic agent framework. It is the semantic, retrieval, and context system layer for enterprise offline AI.
 
-> AX Fabric gives offline AI systems a local semantic and context fabric.  
-> ax-cli and ax-studio are the main ways to use it.  
-> ax-serving helps power parts of that fabric, but AX Fabric is the product.
-
-## Why AX Fabric
+## Why Teams Use It
 
 Most AI retrieval stacks require a managed cloud vector database, a separate BM25 service, a hosted ingestion pipeline, and custom glue to expose that knowledge to applications and AI tools. AX Fabric collapses those pieces into one enterprise offline product.
 
@@ -54,7 +48,7 @@ Most AI retrieval stacks require a managed cloud vector database, a separate BM2
 - **MCP-native** — 23 tools over stdio for direct AI agent integration without a REST server.
 - **Offline-first by default** — your knowledge stays in your environment unless you choose an external embedding provider.
 
-## Where AX Fabric Fits
+## System Model
 
 ```text
 Users / Applications / AI tools / Agents
@@ -88,16 +82,16 @@ Use AX Fabric when you want:
 - MCP-native access to private documents,
 - one product that combines ingestion, indexing, and retrieval.
 
-## Product Endpoints
+## Endpoints And Roles
 
-AX Fabric is the core product, but most users will reach it through one of these endpoints:
+AX Fabric is the core product. Most users interact with it through one of these endpoints:
 
 - [`ax-cli`](https://github.com/defai-digital/ax-cli) for installation, setup, ingestion, search, and scripted developer workflows.
 - [`ax-studio`](https://github.com/defai-digital/ax-studio) for visual access, workspace management, and interactive retrieval workflows.
 - `ax-fabric` libraries and MCP interfaces when integrating directly into applications and AI tools.
 - `ax-serving` when AX Fabric needs a local serving backend for embeddings or model execution.
 
-This is the intended product stack:
+The intended product stack is:
 
 - users adopt **AX Fabric** as the knowledge product,
 - users operate it through **ax-cli** or **ax-studio**,
