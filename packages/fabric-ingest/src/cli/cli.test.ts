@@ -1471,6 +1471,78 @@ describe("CLI commands", () => {
       logSpy.mockRestore();
 
       expect(output).toContain(semanticCollection);
+      expect(output).toContain(sourceFile);
+    });
+
+    it("search --fuse deduplicates raw and semantic hits that share the same provenance", async () => {
+      const sourceFile = join(sourceDir, "semantic-fuse-target.txt");
+      writeFileSync(
+        sourceFile,
+        "Semantic fusion should collapse duplicate raw and semantic hits from the same chunk provenance.",
+        "utf-8",
+      );
+      const dbPath = join(dataRoot, "semantic.db");
+      const semanticCollection = "test-col-semantic";
+
+      (mockConfig as { ingest: { sources: Array<{ path: string }> } }).ingest.sources = [
+        { path: sourceDir },
+      ];
+
+      const runProgram = new Command();
+      runProgram.exitOverride();
+      const runIngest = runProgram.command("ingest");
+      registerIngestRunCommand(runIngest);
+      const runLogSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+      await runProgram.parseAsync(["node", "test", "ingest", "run"]);
+      runLogSpy.mockRestore();
+
+      const semanticProgram = new Command();
+      semanticProgram.exitOverride();
+      registerSemanticCommand(semanticProgram);
+
+      await semanticProgram.parseAsync([
+        "node", "test", "semantic", "store", sourceFile, "--db", dbPath,
+      ]);
+
+      const store = new SemanticStore(dbPath);
+      const bundleId = store.listBundles()[0]!.bundleId;
+      store.close();
+
+      await semanticProgram.parseAsync([
+        "node", "test", "semantic", "approve-store", bundleId,
+        "--reviewer", "ci",
+        "--min-quality", "0.1",
+        "--duplicate-policy", "warn",
+        "--db", dbPath,
+      ]);
+
+      await semanticProgram.parseAsync([
+        "node", "test", "semantic", "publish", bundleId,
+        "--db", dbPath,
+        "--collection", semanticCollection,
+      ]);
+
+      db.close();
+      db = new AkiDB({ storagePath: akidbRoot });
+
+      const searchProgram = new Command();
+      searchProgram.exitOverride();
+      registerSearchCommand(searchProgram);
+
+      const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+      await searchProgram.parseAsync([
+        "node", "test", "search",
+        "duplicate raw semantic provenance",
+        "--fuse",
+        "--top-k", "5",
+      ]);
+      const output = logSpy.mock.calls.map((c) => c.join(" ")).join("\n");
+      logSpy.mockRestore();
+
+      expect(output).toContain("fused");
+      expect(output).toContain(sourceFile);
+      expect(output).toContain("collection: raw+semantic");
+      expect(output.match(/chunk_id:/g)?.length ?? 0).toBe(1);
     });
 
     it("eval --compare shows comparison table with both collections and Comparison", async () => {

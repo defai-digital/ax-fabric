@@ -2,6 +2,7 @@
  * `ax-fabric search "<query>"` — search for documents using vector similarity.
  */
 
+import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { homedir } from "node:os";
 
@@ -10,6 +11,7 @@ import { AkiDB } from "@ax-fabric/akidb";
 import type { ExplainInfo } from "@ax-fabric/akidb";
 
 import { JobRegistry } from "../registry/index.js";
+import { SemanticStore } from "../semantic/index.js";
 
 import { loadConfig, resolveConfigPath, resolveDataRoot } from "./config-loader.js";
 import { createEmbedderFromConfig } from "./create-embedder.js";
@@ -78,6 +80,7 @@ export function registerSearchCommand(program: Command): void {
       // Determine which collection(s) to query
       const rawCollectionId = config.akidb.collection;
       const semanticCollectionId = `${rawCollectionId}-semantic`;
+      const resultMetadataByChunkId = loadSearchMetadata(dataRoot);
 
       try {
         let queryVector = new Float32Array(0);
@@ -133,23 +136,34 @@ export function registerSearchCommand(program: Command): void {
 
           manifestVersionUsed = rawResult.manifestVersionUsed;
 
-          // RRF fusion: score = 1/(60 + rank) per collection, sum scores, deduplicate by chunkId
-          type ScoredEntry = { chunkId: string; rrfScore: number; collection: string; originalResult: typeof rawResult.results[number] };
-          const byChunkId = new Map<string, ScoredEntry>();
+          // RRF fusion: score = 1/(60 + rank) per collection, sum scores, deduplicate by underlying provenance
+          type ScoredEntry = {
+            chunkId: string;
+            rrfScore: number;
+            collection: string;
+            originalResult: typeof rawResult.results[number];
+            dedupeKey: string;
+          };
+          const byDedupeKey = new Map<string, ScoredEntry>();
 
           const applyRrf = (results: typeof rawResult.results, collection: string): void => {
             results.forEach((result, idx) => {
               const rank = idx + 1;
               const rrfContrib = 1 / (60 + rank);
-              const existing = byChunkId.get(result.chunkId);
+              const dedupeKey = resultMetadataByChunkId.get(result.chunkId)?.dedupeKey ?? result.chunkId;
+              const existing = byDedupeKey.get(dedupeKey);
               if (existing) {
                 existing.rrfScore += rrfContrib;
+                if (existing.collection !== collection) {
+                  existing.collection = "raw+semantic";
+                }
               } else {
-                byChunkId.set(result.chunkId, {
+                byDedupeKey.set(dedupeKey, {
                   chunkId: result.chunkId,
                   rrfScore: rrfContrib,
                   collection,
                   originalResult: result,
+                  dedupeKey,
                 });
               }
             });
@@ -158,23 +172,12 @@ export function registerSearchCommand(program: Command): void {
           applyRrf(rawResult.results, "raw");
           applyRrf(semanticResults, "semantic");
 
-          const fused = Array.from(byChunkId.values())
+          const fused = Array.from(byDedupeKey.values())
             .sort((a, b) => b.rrfScore - a.rrfScore)
             .slice(0, topK);
 
-          // Load the registry to look up file metadata
-          const registryDbPath = join(dataRoot, "registry.db");
-          let registry: JobRegistry | null = null;
-          let filesByChunkId: Map<string, { sourcePath: string; contentType: string }> | null = null;
-          try {
-            registry = new JobRegistry(registryDbPath);
-            filesByChunkId = buildChunkIndex(registry);
-          } catch (err) {
-            console.warn(`Warning: could not load registry (source paths will be missing): ${err instanceof Error ? err.message : String(err)}`);
-          }
-
           renderedResults = fused.map((entry) => {
-            const meta = filesByChunkId?.get(entry.chunkId);
+            const meta = resultMetadataByChunkId.get(entry.chunkId);
             return {
               chunkId: entry.chunkId,
               score: entry.rrfScore,
@@ -185,7 +188,6 @@ export function registerSearchCommand(program: Command): void {
             } as RenderedResult;
           });
 
-          registry?.close();
         } else {
           const searchResult = await db.search({
             collectionId: activeCollectionId,
@@ -198,20 +200,8 @@ export function registerSearchCommand(program: Command): void {
 
           manifestVersionUsed = searchResult.manifestVersionUsed;
 
-          // Load the registry to look up file metadata for each chunk
-          const registryDbPath = join(dataRoot, "registry.db");
-          let registry: JobRegistry | null = null;
-          let filesByChunkId: Map<string, { sourcePath: string; contentType: string }> | null = null;
-
-          try {
-            registry = new JobRegistry(registryDbPath);
-            filesByChunkId = buildChunkIndex(registry);
-          } catch (err) {
-            console.warn(`Warning: could not load registry (source paths will be missing): ${err instanceof Error ? err.message : String(err)}`);
-          }
-
           renderedResults = searchResult.results.map((result) => {
-            const meta = filesByChunkId?.get(result.chunkId);
+            const meta = resultMetadataByChunkId.get(result.chunkId);
             return {
               chunkId: result.chunkId,
               score: result.score,
@@ -220,8 +210,6 @@ export function registerSearchCommand(program: Command): void {
               explain: result.explain ?? null,
             } as RenderedResult;
           });
-
-          registry?.close();
         }
 
         if (renderedResults.length === 0) {
@@ -381,8 +369,8 @@ function trimPreview(text: string, maxChars = 220): string {
  */
 function buildChunkIndex(
   registry: JobRegistry,
-): Map<string, { sourcePath: string; contentType: string }> {
-  const map = new Map<string, { sourcePath: string; contentType: string }>();
+): Map<string, SearchResultMetadata> {
+  const map = new Map<string, SearchResultMetadata>();
   const files = registry.listFiles();
 
   for (const file of files) {
@@ -390,11 +378,66 @@ function buildChunkIndex(
       map.set(chunkId, {
         sourcePath: file.sourcePath,
         contentType: guessContentType(file.sourcePath),
+        dedupeKey: chunkId,
       });
     }
   }
 
   return map;
+}
+
+interface SearchResultMetadata {
+  sourcePath: string;
+  contentType: string;
+  dedupeKey: string;
+}
+
+function loadSearchMetadata(dataRoot: string): Map<string, SearchResultMetadata> {
+  const metadata = new Map<string, SearchResultMetadata>();
+
+  const registryDbPath = join(dataRoot, "registry.db");
+  try {
+    const registry = new JobRegistry(registryDbPath);
+    try {
+      for (const [chunkId, value] of buildChunkIndex(registry)) {
+        metadata.set(chunkId, value);
+      }
+    } finally {
+      registry.close();
+    }
+  } catch (err) {
+    console.warn(`Warning: could not load registry (source paths will be missing): ${err instanceof Error ? err.message : String(err)}`);
+  }
+
+  const semanticDbPath = join(dataRoot, "semantic.db");
+  if (!existsSync(semanticDbPath)) {
+    return metadata;
+  }
+
+  try {
+    const store = new SemanticStore(semanticDbPath);
+    try {
+      for (const summary of store.listBundles()) {
+        const stored = store.getStoredBundle(summary.bundleId);
+        if (!stored) continue;
+        for (const unit of stored.bundle.units) {
+          const span = unit.source_spans[0];
+          if (!span) continue;
+          metadata.set(`semantic:${unit.unit_id}`, {
+            sourcePath: span.source_uri,
+            contentType: span.content_type,
+            dedupeKey: span.chunk_id,
+          });
+        }
+      }
+    } finally {
+      store.close();
+    }
+  } catch (err) {
+    console.warn(`Warning: could not load semantic store (semantic source paths will be missing): ${err instanceof Error ? err.message : String(err)}`);
+  }
+
+  return metadata;
 }
 
 function guessContentType(sourcePath: string): string {
