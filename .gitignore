@@ -19,9 +19,6 @@ __pycache__/
 **/__pycache__/
 *.pyc
 
-# pnpm
-pnpm-lock.yaml
-
 # AutomatosX runtime / agent directories (entire tree)
 .automatosx/
 automatosx/
