@@ -48,7 +48,7 @@ describe("JobRegistry", () => {
   });
 
   it("inserts and retrieves a file record", () => {
-    const record = makeFileRecord();
+    const record = makeFileRecord({ pipelineSignature: "sig-1" });
     registry.upsertFile(record);
 
     const retrieved = registry.getFile("/docs/test.txt");
@@ -72,6 +72,7 @@ describe("JobRegistry", () => {
     const updated = makeFileRecord({
       fingerprint: "newhash",
       docVersion: "v2",
+      pipelineSignature: "sig-2",
       chunkIds: ["chunk-003"],
       lastIngestAt: "2026-02-01T10:00:00.000Z",
     });
@@ -80,6 +81,7 @@ describe("JobRegistry", () => {
     const retrieved = registry.getFile("/docs/test.txt");
     expect(retrieved!.fingerprint).toBe("newhash");
     expect(retrieved!.docVersion).toBe("v2");
+    expect(retrieved!.pipelineSignature).toBe("sig-2");
     expect(retrieved!.chunkIds).toEqual(["chunk-003"]);
   });
 

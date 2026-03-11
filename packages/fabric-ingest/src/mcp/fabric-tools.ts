@@ -13,11 +13,15 @@ import { MetadataFilterSchema, type MetadataFilter } from "@ax-fabric/contracts"
 import { Pipeline } from "../pipeline/index.js";
 import { SourceScanner } from "../scanner/index.js";
 import { createDefaultRegistry } from "../extractor/index.js";
+import { EXTRACTOR_VERSION } from "../extractor/index.js";
 import { normalize } from "../normalizer/index.js";
 import { chunk } from "../chunker/index.js";
+import { CHUNKER_VERSION } from "../chunker/index.js";
 import { JobRegistry } from "../registry/index.js";
 import { MemoryStore } from "../memory/index.js";
 import type { FabricConfig } from "../cli/config-loader.js";
+import { NORMALIZER_VERSION } from "../normalizer/index.js";
+import { RecordBuilder } from "../builder/index.js";
 
 export interface FabricToolsDeps {
   db: AkiDB;
@@ -57,6 +61,7 @@ export function registerFabricTools(server: McpServer, deps: FabricToolsDeps): v
           chunkerOptions: {
             chunkSize: config.ingest.chunking.chunk_size,
             overlapRatio: config.ingest.chunking.overlap,
+            strategy: config.ingest.chunking.strategy,
           },
         });
 
@@ -126,7 +131,30 @@ export function registerFabricTools(server: McpServer, deps: FabricToolsDeps): v
         let registry: JobRegistry | null = null;
         try {
           registry = new JobRegistry(deps.registryDbPath);
-          const known = registry.getKnownFingerprints();
+          const knownStates = registry.getKnownFileStates();
+          const files = registry.listFiles();
+          const chunkerSignature = [
+            CHUNKER_VERSION,
+            `size=${String(config.ingest.chunking.chunk_size)}`,
+            `overlap=${String(config.ingest.chunking.overlap)}`,
+            `strategy=${config.ingest.chunking.strategy}`,
+          ].join("|");
+          const currentPipelineSignature = RecordBuilder.computePipelineSignature({
+            extractor_version: EXTRACTOR_VERSION,
+            normalize_version: NORMALIZER_VERSION,
+            chunker_version: chunkerSignature,
+          });
+          const known = new Map<string, string>();
+          for (const file of files) {
+            const state = knownStates.get(file.sourcePath);
+            if (!state) continue;
+            known.set(
+              file.sourcePath,
+              file.pipelineSignature === currentPipelineSignature
+                ? state.fingerprint
+                : `${state.fingerprint}::stale-pipeline`,
+            );
+          }
           const changes = scanner.detectChanges(allResults, known);
 
           return {

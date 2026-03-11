@@ -50,6 +50,18 @@ function makeCycleEnd(): PipelineEvent {
     tombstonesGenerated: 3,
     compacted: true,
     durationMs: 10000,
+    totalChunksGenerated: 50,
+    averageChunkSizeChars: 128,
+    duplicateChunks: 4,
+    duplicateRatio: 0.08,
+    chunkCountBySource: {
+      "/docs/readme.md": 30,
+      "/docs/guide.txt": 20,
+    },
+    labelDistribution: {
+      paragraph: 40,
+      heading: 10,
+    },
   };
 }
 
@@ -112,6 +124,7 @@ describe("ConsoleObserver", () => {
     const msg = spy.mock.calls[0]?.[0] as string;
     expect(msg).toContain("10 files");
     expect(msg).toContain("50 records");
+    expect(msg).toContain("4 duplicate chunks");
     expect(msg).toContain("compacted");
     spy.mockRestore();
   });
@@ -235,6 +248,8 @@ describe("MetricsObserver", () => {
     expect(c.tombstonesGenerated).toBe(6);
     expect(c.compactions).toBe(2);
     expect(c.totalDurationMs).toBe(20000);
+    expect(c.totalDuplicateChunks).toBe(8);
+    expect(c.totalChunksGenerated).toBe(100);
   });
 
   it("counts errors", () => {

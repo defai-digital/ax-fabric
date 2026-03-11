@@ -29,6 +29,7 @@ describe("RecordMetadataSchema", () => {
     page_range: null,
     offset: 0,
     table_ref: null,
+    chunk_label: "text",
     created_at: new Date().toISOString(),
   };
 
@@ -69,6 +70,16 @@ describe("RecordMetadataSchema", () => {
     expect(result.table_ref).toBe("table_1");
   });
 
+  it("accepts valid chunk labels", () => {
+    for (const chunk_label of ["paragraph", "heading", "table", "code", "list", "text"] as const) {
+      expect(() => RecordMetadataSchema.parse({ ...valid, chunk_label })).not.toThrow();
+    }
+  });
+
+  it("rejects invalid chunk label", () => {
+    expect(() => RecordMetadataSchema.parse({ ...valid, chunk_label: "unknown" })).toThrow();
+  });
+
   it("rejects missing required fields", () => {
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
     const { source_uri: _, ...incomplete } = valid;
@@ -91,6 +102,7 @@ describe("RecordSchema", () => {
     page_range: null,
     offset: 0,
     table_ref: null,
+    chunk_label: "text",
     created_at: new Date().toISOString(),
   };
 

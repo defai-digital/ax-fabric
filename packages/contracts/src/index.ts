@@ -1,8 +1,10 @@
 export {
   RecordSchema,
   RecordMetadataSchema,
+  ChunkLabelSchema,
   type Record,
   type RecordMetadata,
+  type ChunkLabel,
 } from "./record.js";
 
 export {

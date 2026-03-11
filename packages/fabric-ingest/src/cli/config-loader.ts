@@ -41,6 +41,7 @@ export const FabricConfigSchema = z.object({
         .object({
           chunk_size: z.number().int().positive().default(2800),
           overlap: z.number().min(0).max(1).default(0.15),
+          strategy: z.enum(["auto", "fixed", "markdown", "structured"]).default("auto"),
         })
         .default({}),
     })

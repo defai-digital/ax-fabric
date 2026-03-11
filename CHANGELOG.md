@@ -1,5 +1,24 @@
 # Changelog
 
+## v1.5.5
+
+Patch release for `v1.5` retrieval and ingest quality hardening.
+
+### Highlights
+
+- Added `ingest.chunking.strategy` with `auto | fixed | markdown | structured` support across CLI and MCP ingest paths
+- Added `metadata.chunk_label` to stored records so chunk structure is preserved through indexing
+- Added ingest quality metrics including total chunks, average chunk size, duplicate chunk count and ratio, chunk count by source, and label distribution
+- Fixed registry and pipeline invalidation so chunking configuration changes force re-ingest of unchanged files instead of leaving stale indexed data
+- Fixed skipped no-content files so they retain pipeline signature state and do not reprocess forever
+- Fixed `fabric_ingest_diff` to account for pipeline-signature drift rather than fingerprint-only comparisons
+- Added regression coverage for chunking strategy selection, metadata passthrough, quality metrics, registry pipeline signature persistence, and strategy-change re-ingestion
+
+### Notes
+
+- `v1.5.5` is a scoped quality release, not the full semantic-distillation program
+- Verified with targeted contracts, ingest, registry, observer, and MCP test coverage
+
 ## v1.5.1
 
 Patch release for `v1.5`.

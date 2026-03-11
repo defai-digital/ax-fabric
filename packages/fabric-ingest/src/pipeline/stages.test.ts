@@ -182,6 +182,7 @@ describe("stageChunk", () => {
       expect(chunk.chunkHash).toBeTruthy();
       expect(chunk.text.length).toBeGreaterThan(0);
       expect(chunk.offset).toBeGreaterThanOrEqual(0);
+      expect(chunk.label).toBeTruthy();
     }
   });
 
@@ -189,6 +190,22 @@ describe("stageChunk", () => {
     const normalized = { normalizedText: "A".repeat(10000) };
     const result = stageChunk(normalized, file);
     expect(result!.chunks.length).toBeGreaterThan(1);
+  });
+
+  it("supports explicit fixed strategy override", () => {
+    const normalized = { normalizedText: "# Heading\n\nBody paragraph here." };
+    const result = stageChunk(normalized, makeScanResult({ sourcePath: "/docs/readme.md", contentType: "txt" }), {
+      strategy: "fixed",
+    });
+    expect(result!.chunks[0]!.label).toBe("text");
+  });
+
+  it("uses auto-detected markdown strategy when configured", () => {
+    const normalized = { normalizedText: "# Heading\n\nBody paragraph here." };
+    const result = stageChunk(normalized, makeScanResult({ sourcePath: "/docs/readme.md", contentType: "txt" }), {
+      strategy: "auto",
+    });
+    expect(result!.chunks[0]!.label).toBe("heading");
   });
 });
 
@@ -203,6 +220,7 @@ describe("stageEmbed", () => {
       chunkHash: `hash-${i}`,
       text: `chunk text ${i}`,
       offset: i * 50,
+      label: "text" as const,
     }));
     return { docId, docVersion, chunks };
   }
@@ -263,8 +281,8 @@ describe("stageBuild", () => {
       docId: "doc-1",
       docVersion: "fp-abc",
       chunks: [
-        { chunkId: "chunk-0", chunkHash: "hash-0", text: "text 0", offset: 0 },
-        { chunkId: "chunk-1", chunkHash: "hash-1", text: "text 1", offset: 50 },
+        { chunkId: "chunk-0", chunkHash: "hash-0", text: "text 0", offset: 0, label: "text" as const },
+        { chunkId: "chunk-1", chunkHash: "hash-1", text: "text 1", offset: 50, label: "text" as const },
       ],
       vectors: [[0.1, 0.2], [0.3, 0.4]],
     };
@@ -281,7 +299,7 @@ describe("stageBuild", () => {
     const embedded = {
       docId: "doc-1",
       docVersion: "fp-abc",
-      chunks: [{ chunkId: "chunk-0", chunkHash: "hash-0", text: "hello", offset: 0 }],
+      chunks: [{ chunkId: "chunk-0", chunkHash: "hash-0", text: "hello", offset: 0, label: "text" as const }],
       vectors: [[0.1, 0.2, 0.3]],
     };
     const file = makeScanResult();
@@ -304,7 +322,7 @@ describe("stageBuild", () => {
     const embedded = {
       docId: "doc-1",
       docVersion: "fp-abc",
-      chunks: [{ chunkId: "c0", chunkHash: "h0", text: "txt", offset: 0 }],
+      chunks: [{ chunkId: "c0", chunkHash: "h0", text: "txt", offset: 0, label: "paragraph" as const }],
       vectors: [[1.0]],
     };
     const file = makeScanResult({ sourcePath: "/docs/file.txt", contentType: "txt" });
@@ -315,13 +333,14 @@ describe("stageBuild", () => {
 
     expect(records[0]!.metadata.source_uri).toBe("/docs/file.txt");
     expect(records[0]!.metadata.content_type).toBe("txt");
+    expect(records[0]!.metadata.chunk_label).toBe("paragraph");
   });
 
   it("propagates pageRange and tableRef into metadata", () => {
     const embedded = {
       docId: "doc-1",
       docVersion: "fp-abc",
-      chunks: [{ chunkId: "c0", chunkHash: "h0", text: "txt", offset: 0 }],
+      chunks: [{ chunkId: "c0", chunkHash: "h0", text: "txt", offset: 0, label: "table" as const }],
       vectors: [[1.0]],
     };
     const file = makeScanResult();

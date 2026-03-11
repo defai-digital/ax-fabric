@@ -50,13 +50,14 @@ describe("Pipeline", () => {
     rmSync(storageDir, { recursive: true, force: true });
   });
 
-  function createPipeline(): Pipeline {
+  function createPipeline(strategy?: "auto" | "fixed" | "markdown" | "structured"): Pipeline {
     return new Pipeline({
       sourcePaths: [sourceDir],
       akidb,
       collectionId: "test-col",
       embedder,
       registryDbPath,
+      chunkerOptions: strategy ? { strategy } : undefined,
     });
   }
 
@@ -78,6 +79,12 @@ describe("Pipeline", () => {
     expect(metrics.manifestVersion).toBe(0);
     expect(metrics.errors).toHaveLength(0);
     expect(metrics.durationMs).toBeGreaterThanOrEqual(0);
+    expect(metrics.totalChunksGenerated).toBe(metrics.recordsGenerated);
+    expect(metrics.averageChunkSizeChars).toBeGreaterThan(0);
+    expect(metrics.chunkCountBySource[join(sourceDir, "hello.txt")]).toBeGreaterThan(0);
+    expect(Object.values(metrics.labelDistribution).reduce((sum, count) => sum + count, 0)).toBe(
+      metrics.totalChunksGenerated,
+    );
   });
 
   it("is idempotent on unchanged files", async () => {
@@ -98,6 +105,41 @@ describe("Pipeline", () => {
     expect(second.filesModified).toBe(0);
     expect(second.recordsGenerated).toBe(0);
     expect(second.manifestVersion).toBeNull(); // no publish needed
+  });
+
+  it("does not repeatedly reprocess whitespace-only files", async () => {
+    createTestFile(sourceDir, "blank.txt", "   \n   ");
+
+    const pipeline = createPipeline("fixed");
+    const first = await pipeline.run([sourceDir]);
+    const second = await pipeline.run([sourceDir]);
+    pipeline.close();
+
+    expect(first.filesAdded).toBe(1);
+    expect(first.filesSucceeded).toBe(1);
+    expect(first.recordsGenerated).toBe(0);
+    expect(second.filesUnchanged).toBe(1);
+    expect(second.filesModified).toBe(0);
+    expect(second.recordsGenerated).toBe(0);
+  });
+
+  it("re-ingests unchanged files when the chunking strategy changes", async () => {
+    createTestFile(sourceDir, "stable.txt", "# Heading\n\nThis content should be reprocessed when strategy changes.");
+
+    const firstPipeline = createPipeline("fixed");
+    const first = await firstPipeline.run([sourceDir]);
+    firstPipeline.close();
+
+    expect(first.filesAdded).toBe(1);
+    expect(first.recordsGenerated).toBeGreaterThan(0);
+
+    const secondPipeline = createPipeline("structured");
+    const second = await secondPipeline.run([sourceDir]);
+    secondPipeline.close();
+
+    expect(second.filesModified).toBe(1);
+    expect(second.filesUnchanged).toBe(0);
+    expect(second.recordsGenerated).toBeGreaterThan(0);
   });
 
   it("detects modified files and generates tombstones", async () => {
@@ -259,6 +301,20 @@ describe("Pipeline", () => {
     expect(metrics.filesAdded).toBe(1);
     expect(metrics.filesSucceeded).toBe(1);
     expect(metrics.recordsGenerated).toBeGreaterThan(0);
+  });
+
+  it("reports duplicate chunk metrics for repeated content in one cycle", async () => {
+    const repeated = "Repeated content block.\n\nRepeated content block.\n\nRepeated content block.";
+    createTestFile(sourceDir, "dup-a.txt", repeated);
+    createTestFile(sourceDir, "dup-b.txt", repeated);
+
+    const pipeline = createPipeline();
+    const metrics = await pipeline.run([sourceDir]);
+    pipeline.close();
+
+    expect(metrics.totalChunksGenerated).toBeGreaterThan(1);
+    expect(metrics.duplicateChunks).toBeGreaterThan(0);
+    expect(metrics.duplicateRatio).toBeGreaterThan(0);
   });
 
   it("search returns results after ingestion", async () => {

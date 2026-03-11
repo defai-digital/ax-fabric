@@ -45,6 +45,12 @@ export interface CycleEndEvent {
   tombstonesGenerated: number;
   compacted: boolean;
   durationMs: number;
+  totalChunksGenerated: number;
+  averageChunkSizeChars: number;
+  duplicateChunks: number;
+  duplicateRatio: number;
+  chunkCountBySource: Record<string, number>;
+  labelDistribution: Record<string, number>;
   stageDurations?: StageDurations;
   embedStats?: EmbedStats;
 }

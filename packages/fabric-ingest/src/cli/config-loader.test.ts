@@ -72,6 +72,7 @@ describe("loadConfig", () => {
     expect(config.ingest.scan.mode).toBe("incremental");
     expect(config.ingest.chunking.chunk_size).toBe(2800);
     expect(config.ingest.chunking.overlap).toBe(0.15);
+    expect(config.ingest.chunking.strategy).toBe("auto");
     expect(config.embedder.type).toBe("local");
     expect(config.embedder.dimension).toBe(128);
     expect(config.embedder.batch_size).toBe(64);
@@ -92,7 +93,7 @@ describe("loadConfig", () => {
       ingest: {
         sources: [{ path: "/docs" }],
         scan: { mode: "incremental", fingerprint: "sampled" },
-        chunking: { chunk_size: 1024, overlap: 0.2 },
+        chunking: { chunk_size: 1024, overlap: 0.2, strategy: "structured" },
       },
       embedder: {
         type: "http",
@@ -120,6 +121,7 @@ describe("loadConfig", () => {
     expect(config.ingest.sources[0]!.path).toBe("/docs");
     expect(config.ingest.scan.fingerprint).toBe("sampled");
     expect(config.ingest.chunking.chunk_size).toBe(1024);
+    expect(config.ingest.chunking.strategy).toBe("structured");
     expect(config.embedder.type).toBe("http");
     expect(config.embedder.dimension).toBe(1536);
     expect(config.llm?.model_id).toBe("qwen3-0.6b");

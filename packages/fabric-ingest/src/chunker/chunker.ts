@@ -9,6 +9,8 @@ export interface ChunkerOptions {
   chunkSize?: number;
   /** Overlap ratio between consecutive chunks. Default: 0.15. */
   overlapRatio?: number;
+  /** Chunking strategy override. Default: "auto". */
+  strategy?: "auto" | "fixed" | "markdown" | "structured";
 }
 
 /** A single chunk produced by the chunker. */

@@ -13,6 +13,7 @@ CREATE TABLE IF NOT EXISTS files (
   mtime_ms REAL NOT NULL DEFAULT 0,
   doc_id TEXT NOT NULL,
   doc_version TEXT NOT NULL,
+  pipeline_signature TEXT NOT NULL DEFAULT '',
   chunk_ids TEXT NOT NULL DEFAULT '[]',
   last_ingest_at TEXT NOT NULL,
   status TEXT NOT NULL CHECK (status IN ('success', 'error')),
@@ -21,14 +22,15 @@ CREATE TABLE IF NOT EXISTS files (
 "#;
 
 const JOB_REGISTRY_UPSERT_SQL: &str = r#"
-INSERT INTO files (source_path, fingerprint, size_bytes, mtime_ms, doc_id, doc_version, chunk_ids, last_ingest_at, status, error_message)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+INSERT INTO files (source_path, fingerprint, size_bytes, mtime_ms, doc_id, doc_version, pipeline_signature, chunk_ids, last_ingest_at, status, error_message)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 ON CONFLICT(source_path) DO UPDATE SET
   fingerprint = excluded.fingerprint,
   size_bytes = excluded.size_bytes,
   mtime_ms = excluded.mtime_ms,
   doc_id = excluded.doc_id,
   doc_version = excluded.doc_version,
+  pipeline_signature = excluded.pipeline_signature,
   chunk_ids = excluded.chunk_ids,
   last_ingest_at = excluded.last_ingest_at,
   status = excluded.status,
@@ -46,6 +48,8 @@ struct JobRegistryFileRecord {
     mtime_ms: f64,
     doc_id: String,
     doc_version: String,
+    #[serde(default)]
+    pipeline_signature: String,
     chunk_ids: Vec<String>,
     last_ingest_at: String,
     status: String,
@@ -96,17 +100,17 @@ impl JobRegistryNative {
         self.with_conn(|conn| {
             let mut stmt = conn
                 .prepare(
-                    "SELECT source_path, fingerprint, size_bytes, mtime_ms, doc_id, doc_version, chunk_ids, last_ingest_at, status, error_message
+                    "SELECT source_path, fingerprint, size_bytes, mtime_ms, doc_id, doc_version, pipeline_signature, chunk_ids, last_ingest_at, status, error_message
                      FROM files WHERE source_path = ?",
                 )
                 .map_err(to_napi_error)?;
 
             let row = stmt
                 .query_row(params![source_path], |row| {
-                    let chunk_ids_raw: String = row.get(6)?;
+                    let chunk_ids_raw: String = row.get(7)?;
                     let chunk_ids = serde_json::from_str::<Vec<String>>(&chunk_ids_raw).map_err(|e| {
                         rusqlite::Error::FromSqlConversionFailure(
-                            6,
+                            7,
                             rusqlite::types::Type::Text,
                             Box::new(e),
                         )
@@ -118,10 +122,11 @@ impl JobRegistryNative {
                         mtime_ms: row.get(3)?,
                         doc_id: row.get(4)?,
                         doc_version: row.get(5)?,
+                        pipeline_signature: row.get(6)?,
                         chunk_ids,
-                        last_ingest_at: row.get(7)?,
-                        status: row.get(8)?,
-                        error_message: row.get(9)?,
+                        last_ingest_at: row.get(8)?,
+                        status: row.get(9)?,
+                        error_message: row.get(10)?,
                     })
                 })
                 .optional()
@@ -151,6 +156,7 @@ impl JobRegistryNative {
                     record.mtime_ms,
                     record.doc_id,
                     record.doc_version,
+                    record.pipeline_signature,
                     serde_json::to_string(&record.chunk_ids)
                         .map_err(|e| Error::from_reason(format!("Failed to encode chunk_ids: {e}")))?,
                     record.last_ingest_at,
@@ -177,14 +183,14 @@ impl JobRegistryNative {
         self.with_conn(|conn| {
             let mut stmt = conn
                 .prepare(
-                    "SELECT source_path, fingerprint, size_bytes, mtime_ms, doc_id, doc_version, chunk_ids, last_ingest_at, status, error_message
+                    "SELECT source_path, fingerprint, size_bytes, mtime_ms, doc_id, doc_version, pipeline_signature, chunk_ids, last_ingest_at, status, error_message
                      FROM files ORDER BY source_path",
                 )
                 .map_err(to_napi_error)?;
             let mut rows = stmt.query([]).map_err(to_napi_error)?;
             let mut out: Vec<JobRegistryFileRecord> = Vec::new();
             while let Some(row) = rows.next().map_err(to_napi_error)? {
-                let chunk_ids_raw: String = row.get(6).map_err(to_napi_error)?;
+                let chunk_ids_raw: String = row.get(7).map_err(to_napi_error)?;
                 let chunk_ids = serde_json::from_str::<Vec<String>>(&chunk_ids_raw)
                     .map_err(|e| Error::from_reason(format!("Invalid chunk_ids JSON in registry: {e}")))?;
                 out.push(JobRegistryFileRecord {
@@ -194,10 +200,11 @@ impl JobRegistryNative {
                     mtime_ms: row.get(3).map_err(to_napi_error)?,
                     doc_id: row.get(4).map_err(to_napi_error)?,
                     doc_version: row.get(5).map_err(to_napi_error)?,
+                    pipeline_signature: row.get(6).map_err(to_napi_error)?,
                     chunk_ids,
-                    last_ingest_at: row.get(7).map_err(to_napi_error)?,
-                    status: row.get(8).map_err(to_napi_error)?,
-                    error_message: row.get(9).map_err(to_napi_error)?,
+                    last_ingest_at: row.get(8).map_err(to_napi_error)?,
+                    status: row.get(9).map_err(to_napi_error)?,
+                    error_message: row.get(10).map_err(to_napi_error)?,
                 });
             }
             serde_json::to_string(&out)
@@ -286,6 +293,7 @@ fn ensure_job_registry_columns(conn: &Connection) -> Result<()> {
     let mut rows = stmt.query([]).map_err(to_napi_error)?;
     let mut has_size_bytes = false;
     let mut has_mtime_ms = false;
+    let mut has_pipeline_signature = false;
 
     while let Some(row) = rows.next().map_err(to_napi_error)? {
         let name: String = row.get(1).map_err(to_napi_error)?;
@@ -293,6 +301,8 @@ fn ensure_job_registry_columns(conn: &Connection) -> Result<()> {
             has_size_bytes = true;
         } else if name == "mtime_ms" {
             has_mtime_ms = true;
+        } else if name == "pipeline_signature" {
+            has_pipeline_signature = true;
         }
     }
 
@@ -306,6 +316,13 @@ fn ensure_job_registry_columns(conn: &Connection) -> Result<()> {
     if !has_mtime_ms {
         conn.execute(
             "ALTER TABLE files ADD COLUMN mtime_ms REAL NOT NULL DEFAULT 0",
+            [],
+        )
+        .map_err(to_napi_error)?;
+    }
+    if !has_pipeline_signature {
+        conn.execute(
+            "ALTER TABLE files ADD COLUMN pipeline_signature TEXT NOT NULL DEFAULT ''",
             [],
         )
         .map_err(to_napi_error)?;

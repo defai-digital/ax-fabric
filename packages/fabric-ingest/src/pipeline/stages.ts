@@ -13,6 +13,8 @@
  *             → [build] → BuildOutput
  */
 
+import { createHash } from "node:crypto";
+
 import { AxFabricError } from "@ax-fabric/contracts";
 import type { Record } from "@ax-fabric/contracts";
 
@@ -22,8 +24,10 @@ import type { EmbedderProvider } from "@ax-fabric/contracts";
 import { normalize } from "../normalizer/index.js";
 import { chunk } from "../chunker/index.js";
 import type { ChunkerOptions } from "../chunker/index.js";
+import { detectStrategy, getStrategy } from "../chunker/index.js";
 import { RecordBuilder } from "../builder/index.js";
 import type { ChunkWithEmbedding } from "../builder/index.js";
+import type { ChunkLabel } from "@ax-fabric/contracts";
 
 // ─── Stage output types ───────────────────────────────────────────────────────
 
@@ -42,6 +46,7 @@ export interface ChunkItem {
   chunkHash: string;
   text: string;
   offset: number;
+  label: ChunkLabel;
 }
 
 export interface ChunkOutput {
@@ -94,17 +99,22 @@ export function stageChunk(
 ): ChunkOutput | null {
   const docId = RecordBuilder.computeDocId(file.sourcePath, file.fingerprint);
   const docVersion = file.fingerprint;
-  const chunks = chunk(normalized.normalizedText, docId, docVersion, options);
+  const strategyName = options?.strategy ?? "auto";
+  const chunks =
+    strategyName === "fixed"
+      ? chunk(normalized.normalizedText, docId, docVersion, options).map((c) => ({
+          chunkId: c.chunkId,
+          chunkHash: c.chunkHash,
+          text: c.text,
+          offset: c.offset,
+          label: "text" as const,
+        }))
+      : chunkWithStrategy(normalized.normalizedText, file.sourcePath, docId, docVersion, options);
   if (chunks.length === 0) return null;
   return {
     docId,
     docVersion,
-    chunks: chunks.map((c) => ({
-      chunkId: c.chunkId,
-      chunkHash: c.chunkHash,
-      text: c.text,
-      offset: c.offset,
-    })),
+    chunks,
   };
 }
 
@@ -143,6 +153,7 @@ export function stageBuild(
     chunkHash: c.chunkHash,
     text: c.text,
     offset: c.offset,
+    label: c.label,
     vector: embedded.vectors[i]!,
     sourcePath: file.sourcePath,
     contentType: file.contentType,
@@ -152,4 +163,36 @@ export function stageBuild(
 
   const records = builder.buildRecords(embedded.docId, embedded.docVersion, chunksWithEmbeddings);
   return { records };
+}
+
+function chunkWithStrategy(
+  text: string,
+  sourcePath: string,
+  docId: string,
+  docVersion: string,
+  options?: ChunkerOptions,
+): ChunkItem[] {
+  const chunkSize = options?.chunkSize ?? 2800;
+  const overlapRatio = options?.overlapRatio ?? 0.15;
+  const overlap = Math.floor(chunkSize * overlapRatio);
+  const strategy =
+    options?.strategy === undefined || options.strategy === "auto"
+      ? detectStrategy(sourcePath)
+      : getStrategy(options.strategy);
+
+  return strategy.chunk(text, { maxChunkSize: chunkSize, overlap }).map((labeledChunk) => {
+    const chunkHash = chunkHashForText(labeledChunk.text);
+    const chunkId = chunkHashForText(docId + docVersion + String(labeledChunk.offset) + chunkHash);
+    return {
+      chunkId,
+      chunkHash,
+      text: labeledChunk.text,
+      offset: labeledChunk.offset,
+      label: labeledChunk.label,
+    };
+  });
+}
+
+function chunkHashForText(input: string): string {
+  return createHash("sha256").update(input, "utf8").digest("hex");
 }

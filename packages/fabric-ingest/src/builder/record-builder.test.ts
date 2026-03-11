@@ -32,6 +32,7 @@ function makeChunk(index: number): ChunkWithEmbedding {
     contentType: "txt",
     pageRange: null,
     tableRef: null,
+    label: "text",
   };
 }
 
@@ -71,6 +72,7 @@ describe("RecordBuilder.buildRecords", () => {
     expect(record!.metadata.page_range).toBe("1-3");
     expect(record!.metadata.offset).toBe(0);
     expect(record!.metadata.table_ref).toBeNull();
+    expect(record!.metadata.chunk_label).toBe("text");
     expect(record!.metadata.created_at).toBeTruthy();
   });
 

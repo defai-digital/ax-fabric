@@ -7,6 +7,7 @@
 
 import type { EmbedderProvider, Record, Tombstone } from "@ax-fabric/contracts";
 import { AxFabricError } from "@ax-fabric/contracts";
+import type { ChunkLabel } from "@ax-fabric/contracts";
 import type { AkiDB } from "@ax-fabric/akidb";
 import { EmbeddingScheduler } from "../embedder/scheduler.js";
 import type { SchedulerOptions } from "../embedder/scheduler.js";
@@ -79,6 +80,12 @@ export interface PipelineMetrics {
   publishDurationMs: number;
   /** Embedding scheduler stats for this run. */
   embedStats: EmbedStats;
+  totalChunksGenerated: number;
+  averageChunkSizeChars: number;
+  duplicateChunks: number;
+  duplicateRatio: number;
+  chunkCountBySource: Record<string, number>;
+  labelDistribution: Record<string, number>;
 }
 
 export interface PipelineFileError {
@@ -119,10 +126,17 @@ export class Pipeline {
     this.maxBatchRecords = options.maxBatchRecords ?? 500;
     this.observer = options.observer;
 
+    const chunkerSignature = [
+      CHUNKER_VERSION,
+      `size=${String(this.chunkerOptions?.chunkSize ?? 2800)}`,
+      `overlap=${String(this.chunkerOptions?.overlapRatio ?? 0.15)}`,
+      `strategy=${this.chunkerOptions?.strategy ?? "auto"}`,
+    ].join("|");
+
     this.pipelineSignature = RecordBuilder.computePipelineSignature({
       extractor_version: EXTRACTOR_VERSION,
       normalize_version: NORMALIZER_VERSION,
-      chunker_version: CHUNKER_VERSION,
+      chunker_version: chunkerSignature,
     });
   }
 
@@ -136,6 +150,7 @@ export class Pipeline {
     const paths = sourcePaths ?? this.sourcePaths;
     const metrics = createEmptyMetrics();
     const errors: PipelineFileError[] = [];
+    const qualityAccumulator = createQualityAccumulator();
     // Snapshot scheduler counters before this run so we can compute a per-run delta.
     const schedBaseline = this.scheduler.snapshot();
 
@@ -150,6 +165,7 @@ export class Pipeline {
     // 1. Scan all source paths (async: concurrent stat + fingerprint per directory)
     const scanStart = Date.now();
     const knownFileStates = this.registry.getKnownFileStates();
+    const knownFiles = this.registry.listFiles();
     const scannedPerRoot = await runConcurrent(
       paths,
       (root) => this.scanner.scanAsync(root, knownFileStates),
@@ -164,8 +180,14 @@ export class Pipeline {
 
     // 2. Detect changes against Job Registry
     const knownFingerprints = new Map<string, string>();
-    for (const [path, state] of knownFileStates) {
-      knownFingerprints.set(path, state.fingerprint);
+    for (const file of knownFiles) {
+      const state = knownFileStates.get(file.sourcePath);
+      if (!state) continue;
+      const fingerprint =
+        file.pipelineSignature === this.pipelineSignature
+          ? state.fingerprint
+          : `${state.fingerprint}::stale-pipeline`;
+      knownFingerprints.set(file.sourcePath, fingerprint);
     }
     const changes = this.scanner.detectChanges(allResults, knownFingerprints);
     metrics.filesAdded = changes.added.length;
@@ -214,6 +236,7 @@ export class Pipeline {
         metrics.filesSucceeded++;
         metrics.recordsGenerated += result.recordCount;
         metrics.tombstonesGenerated += result.tombstoneCount;
+        accumulateQuality(qualityAccumulator, result.quality);
       }
     }
 
@@ -230,6 +253,7 @@ export class Pipeline {
       } else {
         metrics.filesSucceeded++;
         metrics.recordsGenerated += result.recordCount;
+        accumulateQuality(qualityAccumulator, result.quality);
       }
     }
     metrics.processDurationMs = Date.now() - processStart;
@@ -258,6 +282,7 @@ export class Pipeline {
 
     metrics.errors = errors;
     metrics.durationMs = Date.now() - startMs;
+    finalizeQuality(metrics, qualityAccumulator);
 
     this.observer?.onEvent({
       type: "cycle_end",
@@ -270,6 +295,12 @@ export class Pipeline {
       tombstonesGenerated: metrics.tombstonesGenerated,
       compacted: false,
       durationMs: metrics.durationMs,
+      totalChunksGenerated: metrics.totalChunksGenerated,
+      averageChunkSizeChars: metrics.averageChunkSizeChars,
+      duplicateChunks: metrics.duplicateChunks,
+      duplicateRatio: metrics.duplicateRatio,
+      chunkCountBySource: metrics.chunkCountBySource,
+      labelDistribution: metrics.labelDistribution,
       stageDurations: {
         scanMs: metrics.scanDurationMs,
         processMs: metrics.processDurationMs,
@@ -348,7 +379,13 @@ export class Pipeline {
       // Stage 1: Extract
       const extracted = await stageExtract(file, this.extractorRegistry);
       if (!extracted) {
-        const result = makeSuccess(file, [], this.registry);
+        const result = makeSuccess(file, [], this.registry, {
+          chunkHashes: [],
+          totalChunkChars: 0,
+          chunkCountBySource: {},
+          labelDistribution: {},
+          pipelineSignature: this.pipelineSignature,
+        });
         this.observer?.onEvent({
           type: "file_processed",
           timestamp: new Date().toISOString(),
@@ -367,7 +404,13 @@ export class Pipeline {
       // Stage 3: Chunk
       const chunked = stageChunk(normalized, file, this.chunkerOptions);
       if (!chunked) {
-        const result = makeSuccess(file, [], this.registry);
+        const result = makeSuccess(file, [], this.registry, {
+          chunkHashes: [],
+          totalChunkChars: 0,
+          chunkCountBySource: {},
+          labelDistribution: {},
+          pipelineSignature: this.pipelineSignature,
+        });
         this.observer?.onEvent({
           type: "file_processed",
           timestamp: new Date().toISOString(),
@@ -390,7 +433,12 @@ export class Pipeline {
       await publisher.addRecords(records);
 
       // Update registry (side effect)
-      const result = makeSuccess(file, records, this.registry);
+      const result = makeSuccess(
+        file,
+        records,
+        this.registry,
+        collectFileQuality(file.sourcePath, chunked.chunks, this.pipelineSignature),
+      );
       this.observer?.onEvent({
         type: "file_processed",
         timestamp: new Date().toISOString(),
@@ -411,6 +459,7 @@ export class Pipeline {
         mtimeMs: file.mtimeMs,
         docId: RecordBuilder.computeDocId(file.sourcePath, file.fingerprint),
         docVersion: file.fingerprint,
+        pipelineSignature: this.pipelineSignature,
         chunkIds: [],
         lastIngestAt: new Date().toISOString(),
         status: "error",
@@ -426,7 +475,17 @@ export class Pipeline {
         durationMs: Date.now() - fileStart,
         errorMessage: msg,
       });
-      return { recordCount: 0, tombstoneCount: 0, error: { sourcePath: file.sourcePath, errorCode: code, message: msg } };
+      return {
+        recordCount: 0,
+        tombstoneCount: 0,
+        quality: {
+          chunkHashes: [],
+          totalChunkChars: 0,
+          chunkCountBySource: {},
+          labelDistribution: {},
+        },
+        error: { sourcePath: file.sourcePath, errorCode: code, message: msg },
+      };
     }
   }
 
@@ -435,6 +494,28 @@ export class Pipeline {
     this.registry.close();
     void this.scheduler.close(); // scheduler.close() is synchronous (timer cancel); void is intentional
   }
+}
+
+function collectFileQuality(
+  sourcePath: string,
+  chunks: Array<{ chunkHash: string; text: string; label: ChunkLabel }>,
+  pipelineSignature: string,
+): FileQualityStats {
+  const labelDistribution: Record<string, number> = {};
+  let totalChunkChars = 0;
+
+  for (const chunk of chunks) {
+    totalChunkChars += chunk.text.length;
+    labelDistribution[chunk.label] = (labelDistribution[chunk.label] ?? 0) + 1;
+  }
+
+  return {
+    chunkHashes: chunks.map((chunk) => chunk.chunkHash),
+    totalChunkChars,
+    chunkCountBySource: { [sourcePath]: chunks.length },
+    labelDistribution,
+    pipelineSignature,
+  };
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -482,6 +563,7 @@ async function runConcurrent<T, R>(
 interface ProcessResult {
   recordCount: number;
   tombstoneCount: number;
+  quality: FileQualityStats;
   error?: PipelineFileError;
 }
 
@@ -511,6 +593,12 @@ function createEmptyMetrics(): PipelineMetrics {
       avgFillRatio: 0,
       vectorsPerSec: 0,
     },
+    totalChunksGenerated: 0,
+    averageChunkSizeChars: 0,
+    duplicateChunks: 0,
+    duplicateRatio: 0,
+    chunkCountBySource: {},
+    labelDistribution: {},
   };
 }
 
@@ -519,6 +607,7 @@ function makeSuccess(
   file: ScanResult,
   records: Record[],
   registry: JobRegistry,
+  quality?: FileQualityStats,
 ): ProcessResult {
   const chunkIds = records.map((r) => r.chunk_id);
   registry.upsertFile({
@@ -528,9 +617,80 @@ function makeSuccess(
     mtimeMs: file.mtimeMs,
     docId: records.length > 0 ? records[0]!.doc_id : RecordBuilder.computeDocId(file.sourcePath, file.fingerprint),
     docVersion: file.fingerprint,
+    pipelineSignature: quality?.pipelineSignature,
     chunkIds,
     lastIngestAt: new Date().toISOString(),
     status: "success",
   });
-  return { recordCount: records.length, tombstoneCount: 0 };
+  return {
+    recordCount: records.length,
+    tombstoneCount: 0,
+    quality:
+      quality ??
+      {
+        chunkHashes: [],
+        totalChunkChars: 0,
+        chunkCountBySource: {},
+        labelDistribution: {},
+      },
+  };
+}
+
+interface FileQualityStats {
+  chunkHashes: string[];
+  totalChunkChars: number;
+  chunkCountBySource: Record<string, number>;
+  labelDistribution: Record<string, number>;
+  pipelineSignature?: string;
+}
+
+interface QualityAccumulator {
+  totalChunksGenerated: number;
+  totalChunkChars: number;
+  chunkHashCounts: Record<string, number>;
+  chunkCountBySource: Record<string, number>;
+  labelDistribution: Record<string, number>;
+}
+
+function createQualityAccumulator(): QualityAccumulator {
+  return {
+    totalChunksGenerated: 0,
+    totalChunkChars: 0,
+    chunkHashCounts: {},
+    chunkCountBySource: {},
+    labelDistribution: {},
+  };
+}
+
+function accumulateQuality(accumulator: QualityAccumulator, quality: FileQualityStats): void {
+  accumulator.totalChunksGenerated += quality.chunkHashes.length;
+  for (const chunkHash of quality.chunkHashes) {
+    accumulator.chunkHashCounts[chunkHash] = (accumulator.chunkHashCounts[chunkHash] ?? 0) + 1;
+  }
+  for (const [sourcePath, chunkCount] of Object.entries(quality.chunkCountBySource)) {
+    accumulator.chunkCountBySource[sourcePath] =
+      (accumulator.chunkCountBySource[sourcePath] ?? 0) + chunkCount;
+  }
+  for (const [label, count] of Object.entries(quality.labelDistribution)) {
+    accumulator.labelDistribution[label] = (accumulator.labelDistribution[label] ?? 0) + count;
+  }
+  accumulator.totalChunkChars += quality.totalChunkChars;
+}
+
+function finalizeQuality(metrics: PipelineMetrics, accumulator: QualityAccumulator): void {
+  let duplicateChunks = 0;
+  for (const value of Object.values(accumulator.chunkHashCounts)) {
+    if (value > 1) duplicateChunks += value - 1;
+  }
+
+  metrics.totalChunksGenerated = accumulator.totalChunksGenerated;
+  metrics.chunkCountBySource = accumulator.chunkCountBySource;
+  metrics.labelDistribution = accumulator.labelDistribution;
+  metrics.duplicateChunks = duplicateChunks;
+  metrics.duplicateRatio =
+    accumulator.totalChunksGenerated > 0 ? duplicateChunks / accumulator.totalChunksGenerated : 0;
+  metrics.averageChunkSizeChars =
+    accumulator.totalChunksGenerated > 0
+      ? accumulator.totalChunkChars / accumulator.totalChunksGenerated
+      : 0;
 }

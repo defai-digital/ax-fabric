@@ -57,6 +57,7 @@ export function registerIngestRunCommand(ingest: Command): void {
         chunkerOptions: {
           chunkSize: config.ingest.chunking.chunk_size,
           overlapRatio: config.ingest.chunking.overlap,
+          strategy: config.ingest.chunking.strategy,
         },
       });
 
@@ -90,6 +91,21 @@ export function registerIngestRunCommand(ingest: Command): void {
           console.log(`    Avg fill ratio:  ${(metrics.embedStats.avgFillRatio * 100).toFixed(1)}%`);
           if (metrics.embedStats.errorsEncountered > 0) {
             console.log(`    Errors:          ${String(metrics.embedStats.errorsEncountered)}`);
+          }
+        }
+
+        if (metrics.totalChunksGenerated > 0) {
+          console.log("");
+          console.log("  Quality:");
+          console.log(`    Chunks generated: ${String(metrics.totalChunksGenerated)}`);
+          console.log(`    Avg chunk chars:  ${metrics.averageChunkSizeChars.toFixed(1)}`);
+          console.log(`    Duplicate chunks: ${String(metrics.duplicateChunks)} (${(metrics.duplicateRatio * 100).toFixed(1)}%)`);
+          const labelSummary = Object.entries(metrics.labelDistribution)
+            .sort(([a], [b]) => a.localeCompare(b))
+            .map(([label, count]) => `${label}=${String(count)}`)
+            .join(", ");
+          if (labelSummary) {
+            console.log(`    Labels:           ${labelSummary}`);
           }
         }
 

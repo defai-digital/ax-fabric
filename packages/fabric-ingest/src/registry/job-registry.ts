@@ -14,6 +14,7 @@ export interface FileRecord {
   mtimeMs: number;
   docId: string;
   docVersion: string;
+  pipelineSignature?: string;
   chunkIds: string[];
   lastIngestAt: string;
   status: "success" | "error";
@@ -159,11 +160,17 @@ export class JobRegistry {
 }
 
 function normalizeRecord(record: FileRecord): FileRecord {
-  const raw = record as FileRecord & { errorMessage?: string | null; sizeBytes?: number; mtimeMs?: number };
+  const raw = record as FileRecord & {
+    errorMessage?: string | null;
+    sizeBytes?: number;
+    mtimeMs?: number;
+    pipelineSignature?: string | null;
+  };
   const normalized: FileRecord = {
     ...record,
     sizeBytes: typeof raw.sizeBytes === "number" ? raw.sizeBytes : 0,
     mtimeMs: typeof raw.mtimeMs === "number" ? raw.mtimeMs : 0,
+    pipelineSignature: raw.pipelineSignature ?? undefined,
   };
   if (raw.errorMessage === null) {
     return { ...normalized, errorMessage: undefined };

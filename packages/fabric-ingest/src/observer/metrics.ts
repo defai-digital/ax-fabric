@@ -23,6 +23,9 @@ export interface PipelineCounters {
   totalBatchesFired: number;
   totalVectorsEmbedded: number;
   totalEmbedErrors: number;
+  totalDuplicateChunks: number;
+  totalChunksGenerated: number;
+  totalChunkChars: number;
 }
 
 export class MetricsObserver implements PipelineObserver {
@@ -43,6 +46,9 @@ export class MetricsObserver implements PipelineObserver {
     totalBatchesFired: 0,
     totalVectorsEmbedded: 0,
     totalEmbedErrors: 0,
+    totalDuplicateChunks: 0,
+    totalChunksGenerated: 0,
+    totalChunkChars: 0,
   };
 
   onEvent(event: PipelineEvent): void {
@@ -79,6 +85,10 @@ export class MetricsObserver implements PipelineObserver {
           this.counters.totalVectorsEmbedded += event.embedStats.vectorsEmbedded;
           this.counters.totalEmbedErrors += event.embedStats.errorsEncountered;
         }
+        this.counters.totalDuplicateChunks += event.duplicateChunks;
+        this.counters.totalChunksGenerated += event.totalChunksGenerated;
+        this.counters.totalChunkChars +=
+          Math.round(event.averageChunkSizeChars * event.totalChunksGenerated);
         break;
 
       case "error":
@@ -109,6 +119,9 @@ export class MetricsObserver implements PipelineObserver {
       totalBatchesFired: 0,
       totalVectorsEmbedded: 0,
       totalEmbedErrors: 0,
+      totalDuplicateChunks: 0,
+      totalChunksGenerated: 0,
+      totalChunkChars: 0,
     };
   }
 }

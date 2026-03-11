@@ -36,7 +36,8 @@ export class ConsoleObserver implements PipelineObserver {
           `${this.prefix} Cycle ${event.cycleId} done — ` +
             `${event.filesProcessed} files, ` +
             `${event.recordsGenerated} records, ` +
-            `${event.tombstonesGenerated} tombstones` +
+            `${event.tombstonesGenerated} tombstones, ` +
+            `${event.duplicateChunks} duplicate chunks` +
             `${event.compacted ? ", compacted" : ""}` +
             ` (${event.durationMs}ms)`,
         );

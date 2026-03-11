@@ -13,6 +13,7 @@ import {
 import type {
   Record,
   RecordMetadata,
+  ChunkLabel,
   Tombstone,
   TombstoneReason,
   PipelineVersions,
@@ -32,6 +33,7 @@ export interface ChunkWithEmbedding {
   contentType: ContentType;
   pageRange: string | null;
   tableRef: string | null;
+  label?: ChunkLabel;
 }
 
 export interface RecordBuilderOptions {
@@ -72,6 +74,7 @@ export class RecordBuilder {
           page_range: chunk.pageRange,
           offset: chunk.offset,
           table_ref: chunk.tableRef,
+          chunk_label: chunk.label,
           created_at: new Date().toISOString(),
         },
         chunk_text: chunk.text,
