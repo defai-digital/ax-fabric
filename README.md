@@ -4,6 +4,10 @@ Enterprise offline knowledge fabric for grounded AI systems.
 
 [![CI](https://github.com/defai-digital/ax-fabric/actions/workflows/ci.yml/badge.svg)](https://github.com/defai-digital/ax-fabric/actions/workflows/ci.yml)
 [![Node.js >=22](https://img.shields.io/badge/node-%3E%3D22-brightgreen)](https://nodejs.org)
+[![Rust](https://img.shields.io/badge/rust-stable-orange)](https://www.rust-lang.org)
+[![pnpm](https://img.shields.io/badge/pnpm-10.22-blueviolet)](https://pnpm.io)
+[![Tests](https://img.shields.io/badge/tests-1011%20passing-brightgreen)](#testing)
+[![MCP Tools](https://img.shields.io/badge/MCP%20tools-23-blue)](#mcp-tools)
 [![License: AGPL-3.0](https://img.shields.io/badge/license-AGPL--3.0--or--later-blue)](LICENSE)
 
 Status: ✅ Active Development | pnpm Workspace | Rust + TypeScript | macOS + Linux
@@ -368,7 +372,7 @@ Embedder API keys use env-var indirection in `config.yaml`. Set `api_key_env: MY
 ```bash
 pnpm install
 pnpm build        # build all packages
-pnpm test         # vitest run (1009 TypeScript tests across 51 test files)
+pnpm test         # vitest run (1011 TypeScript tests across 51 test files)
 pnpm lint         # eslint packages/
 pnpm typecheck    # tsc -b
 
@@ -390,7 +394,7 @@ AX Fabric has two independent test layers that run together in CI on every push 
 
 ### TypeScript tests (vitest)
 
-1009 tests across 51 test files, covering the full product stack:
+1011 tests across 51 test files, covering the full product stack:
 
 | Layer | What is tested |
 |---|---|
