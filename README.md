@@ -5,6 +5,8 @@ Offline semantic workflow core for ingest, retrieval, and governed publication.
 [![Node.js >=22](https://img.shields.io/badge/node-%3E%3D22-brightgreen)](https://nodejs.org)
 [![Rust](https://img.shields.io/badge/rust-stable-orange)](https://www.rust-lang.org)
 [![pnpm](https://img.shields.io/badge/pnpm-10.22-blueviolet)](https://pnpm.io)
+[![Tests](https://img.shields.io/badge/tests-1353%20passing-brightgreen)](./packages)
+[![Test Files](https://img.shields.io/badge/test%20files-67-blue)](./packages)
 
 AX Fabric turns local documents into searchable raw chunks and reviewable semantic artifacts. It keeps semantic truth separate from the retrieval index and exposes the same workflow through CLI, library, and MCP interfaces.
 
