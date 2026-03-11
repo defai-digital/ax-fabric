@@ -1,6 +1,6 @@
 # AX Fabric
 
-Enterprise offline knowledge fabric for grounded AI systems.
+Enterprise-first offline semantic platform for grounded AI systems.
 
 [![Node.js >=22](https://img.shields.io/badge/node-%3E%3D22-brightgreen)](https://nodejs.org)
 [![Rust](https://img.shields.io/badge/rust-stable-orange)](https://www.rust-lang.org)
@@ -11,7 +11,7 @@ Enterprise offline knowledge fabric for grounded AI systems.
 
 Status: ✅ Active Development | pnpm Workspace | Rust + TypeScript | macOS + Linux
 
-> 🎯 What AX Fabric Is: The product-level knowledge, retrieval, memory, and context layer for enterprise offline AI systems. It turns local files into searchable, MCP-accessible context without sending your data to the cloud.
+> 🎯 What AX Fabric Is: The product-level semantic, retrieval, memory, and context layer for enterprise offline AI systems. It turns local files into reviewable semantic artifacts and searchable context without sending your data to the cloud.
 
 > 💡 How It Is Positioned: AX Fabric is the primary product. Users should access AX Fabric through its endpoints and companion interfaces: `ax-cli` for developer workflows, `ax-studio` for visual workflows, and `ax-serving` as an optional serving backend for local embeddings, model execution, routing, and deployment.
 
@@ -21,12 +21,13 @@ Status: ✅ Active Development | pnpm Workspace | Rust + TypeScript | macOS + Li
 
 AX Fabric is not just a vector database, and it is not trying to be a full agent framework.
 
-AX Fabric is the enterprise offline knowledge fabric for AI systems:
+AX Fabric is the enterprise-first offline semantic platform for AI systems:
 
-- **Knowledge layer** — ingest local documents, normalize them, chunk them, and keep them current.
+- **Semantic layer** — ingest local documents, normalize them, distill semantic artifacts, and keep them reviewable.
 - **Retrieval layer** — search with vector, keyword, or hybrid retrieval from one local stack.
 - **Memory layer** — expose grounded context that agents and AI tools can reuse consistently.
-- **Integration layer** — surface the same knowledge through CLI, TypeScript, Python, and MCP.
+- **Governance layer** — store semantic truth separately from the retrieval index and control approval and publication workflows.
+- **Integration layer** — surface the same semantic and retrieval workflow through CLI, TypeScript, Python, and MCP.
 
 This means the product story is:
 
@@ -37,7 +38,7 @@ This means the product story is:
 
 If you are evaluating the project, the simplest mental model is:
 
-> AX Fabric gives offline AI systems a local knowledge and context fabric.  
+> AX Fabric gives offline AI systems a local semantic and context fabric.  
 > ax-cli and ax-studio are the main ways to use it.  
 > ax-serving helps power parts of that fabric, but AX Fabric is the product.
 
@@ -47,6 +48,8 @@ Most AI retrieval stacks require a managed cloud vector database, a separate BM2
 
 - **No lock-in** — data and config live at `~/.ax-fabric` and follow your machine.
 - **Incremental** — only changed files are re-processed; unchanged files are always skipped.
+- **Canonical semantic truth** — semantic bundles can be reviewed, approved, and stored independently from the retrieval index.
+- **Controlled publication** — approved semantic artifacts can be published into `AkiDB` without making retrieval the source of truth.
 - **Three search modes** — vector (HNSW ANN), keyword (BM25 via FTS5), and hybrid (RRF fusion).
 - **MCP-native** — 23 tools over stdio for direct AI agent integration without a REST server.
 - **Offline-first by default** — your knowledge stays in your environment unless you choose an external embedding provider.
@@ -63,6 +66,7 @@ Users / Applications / AI tools / Agents
      AX Fabric
         │
         ├── ingestion
+        ├── semantic distillation / review / publication
         ├── indexing
         ├── retrieval
         ├── memory / knowledge access
@@ -77,7 +81,9 @@ Users / Applications / AI tools / Agents
 
 Use AX Fabric when you want:
 
-- an enterprise offline knowledge and context layer,
+- an enterprise offline semantic and context layer,
+- a canonical semantic truth layer separate from the retrieval index,
+- governed review and publication workflows for semantic artifacts,
 - grounded context for AI systems and AI tools,
 - MCP-native access to private documents,
 - one product that combines ingestion, indexing, and retrieval.
