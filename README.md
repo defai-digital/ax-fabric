@@ -1,10 +1,10 @@
 # AX Fabric
 
-Local-first knowledge fabric for grounded AI agents.
+Enterprise offline knowledge fabric for grounded AI systems.
 
 Status: ✅ Active Development | pnpm Workspace | Rust + TypeScript | macOS + Linux
 
-> 🎯 What AX Fabric Is: The product-level knowledge, retrieval, and memory layer for grounded AI agents. It turns local files into searchable, MCP-accessible context without sending your data to the cloud.
+> 🎯 What AX Fabric Is: The product-level knowledge, retrieval, memory, and context layer for enterprise offline AI systems. It turns local files into searchable, MCP-accessible context without sending your data to the cloud.
 
 > 💡 How It Is Positioned: AX Fabric is the primary product. Users should access AX Fabric through its endpoints and companion interfaces: `ax-cli` for developer workflows, `ax-studio` for visual workflows, and `ax-serving` as an optional serving backend for local embeddings, model execution, routing, and deployment.
 
@@ -14,7 +14,7 @@ Status: ✅ Active Development | pnpm Workspace | Rust + TypeScript | macOS + Li
 
 AX Fabric is not just a vector database, and it is not trying to be a full agent framework.
 
-AX Fabric is the local-first knowledge fabric for AI agents:
+AX Fabric is the enterprise offline knowledge fabric for AI systems:
 
 - **Knowledge layer** — ingest local documents, normalize them, chunk them, and keep them current.
 - **Retrieval layer** — search with vector, keyword, or hybrid retrieval from one local stack.
@@ -23,26 +23,26 @@ AX Fabric is the local-first knowledge fabric for AI agents:
 
 This means the product story is:
 
-- **AX Fabric** = the product users adopt for local knowledge, retrieval, and memory.
+- **AX Fabric** = the core product users adopt for enterprise knowledge, retrieval, memory, and context delivery.
 - **ax-cli** = the developer-facing endpoint for setup, ingestion, search, and automation.
 - **ax-studio** = the visual endpoint for workspace, search, and management experiences.
 - **ax-serving** = a supporting execution layer that AX Fabric can use when local model serving is needed.
 
 If you are evaluating the project, the simplest mental model is:
 
-> AX Fabric gives AI agents a local knowledge fabric.  
+> AX Fabric gives offline AI systems a local knowledge and context fabric.  
 > ax-cli and ax-studio are the main ways to use it.  
 > ax-serving helps power parts of that fabric, but AX Fabric is the product.
 
 ## Why AX Fabric
 
-Most AI retrieval stacks require a managed cloud vector database, a separate BM25 service, a hosted ingestion pipeline, and custom glue to expose that knowledge to AI tools. AX Fabric collapses those pieces into one local-first product.
+Most AI retrieval stacks require a managed cloud vector database, a separate BM25 service, a hosted ingestion pipeline, and custom glue to expose that knowledge to applications and AI tools. AX Fabric collapses those pieces into one enterprise offline product.
 
 - **No lock-in** — data and config live at `~/.ax-fabric` and follow your machine.
 - **Incremental** — only changed files are re-processed; unchanged files are always skipped.
 - **Three search modes** — vector (HNSW ANN), keyword (BM25 via FTS5), and hybrid (RRF fusion).
 - **MCP-native** — 19 tools over stdio for direct AI agent integration without a REST server.
-- **Local-first by default** — your knowledge stays on your machine unless you choose an external embedding provider.
+- **Offline-first by default** — your knowledge stays in your environment unless you choose an external embedding provider.
 
 ## Where AX Fabric Fits
 
@@ -70,8 +70,8 @@ Users / Applications / AI tools / Agents
 
 Use AX Fabric when you want:
 
-- a local-first RAG and knowledge layer,
-- grounded context for agents and AI tools,
+- an enterprise offline knowledge and context layer,
+- grounded context for AI systems and AI tools,
 - MCP-native access to private documents,
 - one product that combines ingestion, indexing, and retrieval.
 
@@ -89,6 +89,8 @@ This is the intended product stack:
 - users adopt **AX Fabric** as the knowledge product,
 - users operate it through **ax-cli** or **ax-studio**,
 - AX Fabric can call **ax-serving** when local serving infrastructure is needed.
+
+For the recommended `v1.2.x` product-family architecture and evaluation path, see [STACK.md](./STACK.md). For `v1.3` local-stack operability guidance, see [OPERATIONS.md](./OPERATIONS.md).
 
 ---
 
@@ -243,7 +245,7 @@ pnpm exec ax-fabric search "JWT expiry" --mode keyword
 pnpm exec ax-fabric search "authentication token expiry" --mode hybrid
 ```
 
-For full setup details (embedders, daemon, RAG, MCP, TypeScript API), see [QUICKSTART.md](./QUICKSTART.md).
+For full setup details (embedders, daemon, MCP, TypeScript API, and first evaluation flow), see [QUICKSTART.md](./QUICKSTART.md).
 
 ---
 
@@ -308,6 +310,7 @@ Claude Desktop config:
 - `ax-fabric search <query> [--mode vector|keyword|hybrid] [--top-k N]`
 - `ax-fabric mcp server` / `token show` / `token generate`
 - `ax-fabric orchestrator start`
+- `ax-fabric doctor [--check-serving]`
 
 ### TypeScript (`@ax-fabric/akidb`)
 

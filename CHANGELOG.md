@@ -1,5 +1,28 @@
 # Changelog
 
+## v1.2.1
+
+Documentation and positioning update for the enterprise offline AI direction.
+
+### Highlights
+
+- Clarified AX Fabric as the core product for enterprise offline knowledge, retrieval, memory, and context
+- Added product-family guidance covering `ax-cli`, `ax-studio`, and `ax-serving`
+- Added a dedicated stack guide for the `v1.2.x` evaluation path
+- Reframed QUICKSTART around first evaluation of the offline stack instead of a standalone vector-search demo
+
+### Notes
+
+- See `STACK.md` for the recommended product-family architecture
+- See `QUICKSTART.md` for the updated first evaluation path
+
+## Unreleased
+
+### v1.3 operability work in progress
+
+- Added `ax-fabric doctor` for local readiness and endpoint checks
+- Added `OPERATIONS.md` for local-stack startup order, diagnostics, and operator guidance
+
 ## v1.2.0
 
 First public release of AX Fabric.

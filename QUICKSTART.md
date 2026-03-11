@@ -1,6 +1,15 @@
 # AX Fabric Quickstart
 
-This guide walks you from a fresh checkout to running semantic, keyword, and hybrid search over your own documents.
+This guide walks you from a fresh checkout to a first successful evaluation of AX Fabric as the knowledge and retrieval layer in an enterprise offline AI stack.
+
+Before you begin, keep the product roles clear:
+
+- `ax-fabric` is the core knowledge, retrieval, memory, and context layer.
+- `ax-cli` and `ax-studio` are the main user-facing endpoints around that layer.
+- `ax-serving` is an optional local backend for embeddings and model execution.
+
+For the overall product-family architecture, see [STACK.md](./STACK.md).
+For local-stack operating guidance, see [OPERATIONS.md](./OPERATIONS.md).
 
 ## Prerequisites
 
@@ -18,9 +27,9 @@ rustc --version
 
 ---
 
-## Path A: CLI (one-shot ingestion)
+## Path A: Evaluate AX Fabric Directly via CLI
 
-One command cycle — ingest a directory, search, done.
+One command cycle: ingest a directory, search it, and confirm the core product layer works.
 
 ### 1. Install + Build
 
@@ -85,7 +94,7 @@ export EMBEDDING_API_KEY=sk-...
 
 **Option C: Local model via ax-serving**
 
-Use this when you have a local embedding server running (e.g. [AX Serving](https://github.com/defai-digital/ax-serving)):
+Use this when you want a DEFAI-local backend for embeddings or model execution (e.g. [AX Serving](https://github.com/defai-digital/ax-serving)):
 
 ```yaml
 akidb:
@@ -153,17 +162,23 @@ Hybrid search (vector + BM25, fused with Reciprocal Rank Fusion — best recall)
 pnpm exec ax-fabric search "authentication token expiry" --mode hybrid --top-k 5
 ```
 
-RAG (retrieve and generate a grounded answer):
+Grounded answer generation:
 
 ```bash
 pnpm exec ax-fabric search "how do I deploy to production?" --answer
 ```
 
+At this point, you have validated the core AX Fabric layer:
+
+- local documents were ingested,
+- retrieval works,
+- the system can serve as the knowledge backbone for higher-level interfaces such as `ax-cli` and `ax-studio`.
+
 ---
 
-## Path B: Daemon (continuous ingestion)
+## Path B: Run as a Continuous Local Knowledge Service
 
-A long-running poll loop that detects and re-ingests file changes automatically. Use this when your source directories change frequently.
+A long-running poll loop that detects and re-ingests file changes automatically. Use this when AX Fabric is serving a local workspace that changes over time.
 
 Follow steps 1–3 from Path A, then:
 
@@ -181,9 +196,9 @@ The daemon:
 
 ---
 
-## Path C: MCP Server (AI agent tooling)
+## Path C: Expose AX Fabric to Local AI Tools over MCP
 
-Exposes ax-fabric as a tool provider over stdio for Claude, Gemini, and any MCP-compatible client.
+Expose AX Fabric as a tool provider over stdio for Claude, Gemini, and any MCP-compatible client.
 
 ```bash
 pnpm exec ax-fabric mcp server
@@ -219,6 +234,42 @@ Claude Desktop config:
   }
 }
 ```
+
+Use this path when AX Fabric is acting as the knowledge and context layer behind an AI tool or local agent workflow.
+
+---
+
+## Using AX Fabric with the Rest of the Stack
+
+### ax-cli
+
+Use [`ax-cli`](https://github.com/defai-digital/ax-cli) when you want a developer or operator endpoint around AX Fabric for setup, scripted workflows, and automation.
+
+### ax-studio
+
+Use [`ax-studio`](https://github.com/defai-digital/ax-studio) when you want a visual workspace on top of AX Fabric for interactive retrieval and local AI workflows.
+
+### ax-serving
+
+Use [`ax-serving`](https://github.com/defai-digital/ax-serving) when AX Fabric needs a local embedding or model-serving backend under enterprise-controlled infrastructure.
+
+## Health and Diagnostics
+
+Use the built-in doctor command before troubleshooting deeper:
+
+```bash
+pnpm exec ax-fabric doctor
+pnpm exec ax-fabric doctor --check-serving
+```
+
+## First Evaluation Checklist
+
+You have completed the `v1.2.x` first evaluation path when:
+
+- AX Fabric is initialized locally,
+- a document directory has been ingested,
+- you can run vector, keyword, or hybrid search successfully,
+- you understand where `ax-cli`, `ax-studio`, and `ax-serving` fit in the stack.
 
 ---
 
