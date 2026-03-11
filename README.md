@@ -8,7 +8,6 @@ Enterprise offline knowledge fabric for grounded AI systems.
 [![TS Tests](https://img.shields.io/badge/vitest-1011%20passing-brightgreen)](#typescript-tests-vitest)
 [![Rust Tests](https://img.shields.io/badge/cargo%20test-102%20passing-orange)](#rust-unit-tests-cargo)
 [![MCP Tools](https://img.shields.io/badge/MCP%20tools-23-blue)](#mcp-tools)
-[![License: AGPL-3.0](https://img.shields.io/badge/license-AGPL--3.0--or--later-blue)](LICENSE)
 
 Status: ✅ Active Development | pnpm Workspace | Rust + TypeScript | macOS + Linux
 
