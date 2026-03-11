@@ -200,8 +200,8 @@ describe("Extended Multilingual Search (10 languages)", () => {
         console.log(`  ERROR: ${e.sourcePath}: ${e.message}`);
       }
     }
-    expect(metrics.filesScanned).toBe(15);
-    expect(metrics.filesSucceeded).toBe(15);
+    expect(metrics.filesScanned).toBe(21);
+    expect(metrics.filesSucceeded).toBe(21);
     expect(metrics.filesFailed).toBe(0);
     expect(metrics.errors).toHaveLength(0);
     expect(metrics.recordsGenerated).toBeGreaterThan(0);

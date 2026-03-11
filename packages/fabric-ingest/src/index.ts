@@ -67,6 +67,16 @@ export {
   type PipelineFileError,
 } from "./pipeline/index.js";
 
+// ─── Layer 2.9b: Retrieval Services ───────────────────────────────────────
+export {
+  buildCliFilters,
+  executeSearch,
+  parseRequestedLayer,
+  type RenderedSearchResult,
+  type SearchExecutionResult,
+  type SearchResultMetadata,
+} from "./retrieval/index.js";
+
 // ─── Layer 2.2: Extractors ────────────────────────────────────────────────
 export {
   EXTRACTOR_VERSION,

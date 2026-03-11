@@ -97,4 +97,102 @@ describe("SemanticDistiller", () => {
       rmSync(workdir, { recursive: true, force: true });
     }
   });
+
+  it("prefers informative sentences in summaries and answers", async () => {
+    const workdir = mkdtempSync(join(tmpdir(), "semantic-distill-summary-"));
+    const filePath = join(workdir, "guide.txt");
+    writeFileSync(
+      filePath,
+      [
+        "Overview.",
+        "AX Fabric provides grounded semantic retrieval for offline workflows.",
+        "It preserves provenance and supports reviewable publication into retrieval.",
+        "Thanks.",
+      ].join(" "),
+      "utf8",
+    );
+
+    try {
+      const distiller = new SemanticDistiller();
+      const result = await distiller.distillFile(filePath, {
+        strategy: "fixed",
+        chunkSize: 400,
+        overlapRatio: 0,
+      });
+
+      expect(result.units).toHaveLength(1);
+      expect(result.units[0]!.summary).toContain("AX Fabric provides grounded semantic retrieval");
+      expect(result.units[0]!.answer).toContain("preserves provenance");
+    } finally {
+      rmSync(workdir, { recursive: true, force: true });
+    }
+  });
+
+  it("normalizes list-style duplicates into the same duplicate group", async () => {
+    const workdir = mkdtempSync(join(tmpdir(), "semantic-distill-list-dup-"));
+    const filePath = join(workdir, "duplicate.txt");
+    writeFileSync(
+      filePath,
+      [
+        "# Release Checklist",
+        "",
+        "1. Semantic publication supports reviewable bundles and provenance.",
+        "",
+        "# Release Checklist",
+        "",
+        "2) Semantic publication supports reviewable bundles and provenance.",
+      ].join("\n"),
+      "utf8",
+    );
+
+    try {
+      const distiller = new SemanticDistiller();
+      const result = await distiller.distillFile(filePath, {
+        strategy: "markdown",
+      });
+
+      const duplicates = result.units.filter((unit) => unit.duplicate_group_size !== undefined);
+      expect(duplicates.length).toBeGreaterThan(0);
+      expect(new Set(duplicates.map((unit) => unit.duplicate_group_id)).size).toBe(1);
+    } finally {
+      rmSync(workdir, { recursive: true, force: true });
+    }
+  });
+
+  it("penalizes noisy repeated text in quality scoring", async () => {
+    const workdir = mkdtempSync(join(tmpdir(), "semantic-distill-noise-"));
+    const cleanPath = join(workdir, "clean.txt");
+    const noisyPath = join(workdir, "noisy.txt");
+    writeFileSync(
+      cleanPath,
+      "AX Fabric preserves provenance, supports reviewable semantic workflows, and improves grounded retrieval quality.",
+      "utf8",
+    );
+    writeFileSync(
+      noisyPath,
+      [
+        "WARNING WARNING WARNING !!! 12345 67890",
+        "WARNING WARNING WARNING !!! 12345 67890",
+      ].join("\n"),
+      "utf8",
+    );
+
+    try {
+      const distiller = new SemanticDistiller();
+      const clean = await distiller.distillFile(cleanPath, {
+        strategy: "fixed",
+        chunkSize: 300,
+        overlapRatio: 0,
+      });
+      const noisy = await distiller.distillFile(noisyPath, {
+        strategy: "fixed",
+        chunkSize: 300,
+        overlapRatio: 0,
+      });
+
+      expect(clean.units[0]!.quality_score).toBeGreaterThan(noisy.units[0]!.quality_score);
+    } finally {
+      rmSync(workdir, { recursive: true, force: true });
+    }
+  });
 });

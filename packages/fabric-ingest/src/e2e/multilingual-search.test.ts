@@ -138,8 +138,8 @@ describe("Multilingual PDF Ingestion & Search", () => {
   // ── 1. Ingestion health ──────────────────────────────────────────────────
 
   it("ingests all files without errors", () => {
-    expect(metrics.filesScanned).toBe(15);
-    expect(metrics.filesSucceeded).toBe(15);
+    expect(metrics.filesScanned).toBe(21);
+    expect(metrics.filesSucceeded).toBe(21);
     expect(metrics.filesFailed).toBe(0);
     expect(metrics.errors).toHaveLength(0);
     expect(metrics.recordsGenerated).toBeGreaterThan(0);

@@ -1,12 +1,95 @@
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
+import { DatabaseSync } from "node:sqlite";
 import { describe, expect, it } from "vitest";
 
 import { SemanticReviewEngine } from "./semantic-review.js";
 import { SemanticStore } from "./semantic-store.js";
 
 describe("SemanticStore", () => {
+  it("initializes a schema version for new stores", () => {
+    const workdir = mkdtempSync(join(tmpdir(), "semantic-store-schema-"));
+    const dbPath = join(workdir, "semantic.db");
+
+    try {
+      const store = new SemanticStore(dbPath);
+      expect(store.getSchemaVersion()).toBe(1);
+      store.close();
+    } finally {
+      rmSync(workdir, { recursive: true, force: true });
+    }
+  });
+
+  it("migrates a legacy store that predates schema metadata", () => {
+    const workdir = mkdtempSync(join(tmpdir(), "semantic-store-legacy-schema-"));
+    const dbPath = join(workdir, "semantic.db");
+    const legacyDb = new DatabaseSync(dbPath);
+
+    legacyDb.exec(`
+      CREATE TABLE semantic_bundles (
+        bundle_id TEXT PRIMARY KEY,
+        source_path TEXT NOT NULL,
+        doc_id TEXT NOT NULL,
+        doc_version TEXT NOT NULL,
+        content_type TEXT NOT NULL,
+        distill_strategy TEXT NOT NULL,
+        generated_at TEXT NOT NULL,
+        review_status TEXT NOT NULL,
+        reviewer TEXT,
+        reviewed_at TEXT,
+        min_quality_score REAL,
+        duplicate_policy TEXT,
+        blocking_issues_json TEXT,
+        notes TEXT,
+        total_units INTEGER NOT NULL,
+        average_quality_score REAL NOT NULL,
+        duplicate_group_count INTEGER NOT NULL,
+        bundle_json TEXT NOT NULL,
+        published_collection_id TEXT,
+        published_manifest_version INTEGER,
+        published_at TEXT
+      );
+
+      CREATE TABLE semantic_units (
+        unit_id TEXT PRIMARY KEY,
+        bundle_id TEXT NOT NULL,
+        title TEXT NOT NULL,
+        question TEXT NOT NULL,
+        summary TEXT NOT NULL,
+        answer TEXT NOT NULL,
+        quality_score REAL NOT NULL,
+        duplicate_group_id TEXT,
+        duplicate_group_size INTEGER
+      );
+
+      CREATE TABLE semantic_spans (
+        bundle_id TEXT NOT NULL,
+        unit_id TEXT NOT NULL,
+        span_index INTEGER NOT NULL,
+        source_uri TEXT NOT NULL,
+        content_type TEXT NOT NULL,
+        page_range TEXT,
+        table_ref TEXT,
+        offset_start INTEGER NOT NULL,
+        offset_end INTEGER NOT NULL,
+        chunk_id TEXT NOT NULL,
+        chunk_hash TEXT NOT NULL,
+        chunk_label TEXT NOT NULL,
+        PRIMARY KEY(unit_id, span_index)
+      );
+    `);
+    legacyDb.close();
+
+    try {
+      const store = new SemanticStore(dbPath);
+      expect(store.getSchemaVersion()).toBe(1);
+      store.close();
+    } finally {
+      rmSync(workdir, { recursive: true, force: true });
+    }
+  });
+
   it("stores and loads bundles", async () => {
     const workdir = mkdtempSync(join(tmpdir(), "semantic-store-"));
     const dbPath = join(workdir, "semantic.db");
@@ -185,6 +268,40 @@ describe("SemanticStore", () => {
       const ref = store.findPublishedBundleForDoc(bundle.doc_id, "default-semantic");
       expect(ref?.bundleId).toBe(bundle.bundle_id);
       expect(ref?.docId).toBe(bundle.doc_id);
+      store.close();
+    } finally {
+      rmSync(workdir, { recursive: true, force: true });
+    }
+  });
+
+  it("clears publication state explicitly", async () => {
+    const workdir = mkdtempSync(join(tmpdir(), "semantic-store-clear-published-"));
+    const dbPath = join(workdir, "semantic.db");
+    const filePath = join(workdir, "guide.txt");
+    writeFileSync(filePath, "Semantic publication state should be clearable.", "utf8");
+
+    try {
+      const engine = new SemanticReviewEngine();
+      const bundle = await engine.createBundle(filePath);
+      const approved = engine.approveBundle(bundle, {
+        reviewer: "akira",
+        minQualityScore: 0.1,
+        duplicatePolicy: "warn",
+      });
+
+      const store = new SemanticStore(dbPath);
+      store.upsertBundle(approved);
+      store.markPublished(bundle.bundle_id, {
+        collectionId: "default-semantic",
+        manifestVersion: 1,
+        publishedAt: new Date().toISOString(),
+      });
+
+      store.clearPublished(bundle.bundle_id);
+
+      const stored = store.getStoredBundle(bundle.bundle_id);
+      expect(stored?.publication).toBeNull();
+      expect(store.findPublishedBundleForDoc(bundle.doc_id, "default-semantic")).toBeNull();
       store.close();
     } finally {
       rmSync(workdir, { recursive: true, force: true });

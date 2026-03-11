@@ -37,6 +37,7 @@ export interface SemanticDistillResult {
 const DEFAULT_MAX_KEYWORDS = 6;
 const DEFAULT_MAX_ENTITIES = 6;
 const DEFAULT_MAX_SUMMARY_SENTENCES = 2;
+const DEFAULT_MAX_ANSWER_SENTENCES = 3;
 
 const STOPWORDS = new Set([
   "a", "an", "and", "are", "as", "at", "be", "been", "being", "but", "by",
@@ -82,11 +83,12 @@ export class SemanticDistiller {
 
     const units = chunked.chunks.map((chunk) => {
       const title = deriveTitle(chunk.text, chunk.label);
-      const summary = summarizeText(
+      const summarySentences = summarizeSentences(
         chunk.text,
         options?.maxSummarySentences ?? DEFAULT_MAX_SUMMARY_SENTENCES,
       );
-      const answer = deriveAnswer(chunk.text);
+      const summary = truncate(summarySentences.join(" "), 320);
+      const answer = deriveAnswer(chunk.text, summarySentences);
       const keywords = extractKeywords(
         chunk.text,
         options?.maxKeywords ?? DEFAULT_MAX_KEYWORDS,
@@ -126,7 +128,7 @@ export class SemanticDistiller {
 
       return {
         unit: SemanticUnitSchema.parse(unit),
-        dedupKey: digest(canonicalText),
+        dedupKey: digest(canonicalizeForDedup(chunk.text, title)),
       };
     });
 
@@ -200,11 +202,24 @@ function contentTypeForExtension(
       return "xlsx";
     case ".csv":
       return "csv";
+    case ".tsv":
+      return "tsv";
     case ".json":
       return "json";
+    case ".jsonl":
+      return "jsonl";
     case ".yaml":
     case ".yml":
       return "yaml";
+    case ".html":
+    case ".htm":
+      return "html";
+    case ".rtf":
+      return "rtf";
+    case ".sql":
+      return "sql";
+    case ".log":
+      return "log";
     default:
       return null;
   }
@@ -229,18 +244,28 @@ function deriveTitle(text: string, label: ChunkLabel): string {
   return truncate(firstSentence.trim(), 96);
 }
 
-function summarizeText(text: string, maxSentences: number): string {
+function summarizeSentences(text: string, maxSentences: number): string[] {
   const sentences = splitSentences(text);
   if (sentences.length > 0) {
-    return truncate(sentences.slice(0, Math.max(1, maxSentences)).join(" "), 320);
+    const ranked = rankSummarySentences(sentences);
+    const limited = ranked
+      .slice(0, Math.max(1, maxSentences))
+      .sort((a, b) => a.index - b.index)
+      .map((entry) => entry.text);
+    return limited.length > 0 ? limited : [truncate(normalizeWhitespace(text), 320)];
   }
-  return truncate(normalizeWhitespace(text), 320);
+  return [truncate(normalizeWhitespace(text), 320)];
 }
 
-function deriveAnswer(text: string): string {
+function deriveAnswer(text: string, summarySentences: string[]): string {
   const sentences = splitSentences(text);
-  if (sentences.length > 1) {
-    return truncate(sentences.slice(0, 3).join(" "), 480);
+  if (sentences.length > 0) {
+    const normalizedSummary = new Set(summarySentences.map((sentence) => normalizeWhitespace(sentence)));
+    const answerSentences = [
+      ...summarySentences,
+      ...sentences.filter((sentence) => !normalizedSummary.has(normalizeWhitespace(sentence))),
+    ].slice(0, DEFAULT_MAX_ANSWER_SENTENCES);
+    return truncate(answerSentences.join(" "), 480);
   }
   return truncate(normalizeWhitespace(text), 480);
 }
@@ -249,8 +274,15 @@ function deriveQuestion(title: string, keywords: string[]): string {
   if (title.endsWith("?")) {
     return title;
   }
-  const subject = title.trim() || keywords[0] || "this section";
-  return `What is the key point about ${subject}?`;
+  const normalizedTitle = title.trim();
+  if (/^(what|why|how|when|where|who)\b/i.test(normalizedTitle)) {
+    return `${normalizedTitle.replace(/[.]+$/, "")}?`;
+  }
+  const subject = normalizedTitle || keywords[0] || "this section";
+  if (/^(overview|summary|introduction|background)$/i.test(subject)) {
+    return `What does ${subject.toLowerCase()} cover?`;
+  }
+  return `What is the key point about ${subject.replace(/[.]+$/, "")}?`;
 }
 
 function extractKeywords(text: string, maxKeywords: number): string[] {
@@ -296,8 +328,10 @@ function computeQualityScore(
   keywords: string[],
   entities: string[],
 ): number {
-  const length = normalizeWhitespace(text).length;
-  const sentences = splitSentences(text).length;
+  const normalized = normalizeWhitespace(text);
+  const length = normalized.length;
+  const sentenceList = splitSentences(text);
+  const sentences = sentenceList.length;
   let score = 0.35;
 
   if (length >= 120 && length <= 2200) score += 0.2;
@@ -314,7 +348,42 @@ function computeQualityScore(
   if (label === "heading" || label === "paragraph") score += 0.1;
   else score += 0.05;
 
+  if (hasRepeatedLines(text)) score -= 0.12;
+  if (looksNoisy(normalized)) score -= 0.1;
+  if (containsMostlyUppercaseWords(normalized)) score -= 0.08;
+  if (sentences > 0 && averageSentenceLength(sentenceList) < 24) score -= 0.05;
+
   return Math.min(0.98, Number(score.toFixed(2)));
+}
+
+function rankSummarySentences(sentences: string[]): Array<{ text: string; index: number; score: number }> {
+  return sentences.map((sentence, index) => ({
+    text: sentence,
+    index,
+    score: summarySentenceScore(sentence, index),
+  })).sort((a, b) => {
+    if (b.score !== a.score) {
+      return b.score - a.score;
+    }
+    return a.index - b.index;
+  });
+}
+
+function summarySentenceScore(sentence: string, index: number): number {
+  const normalized = normalizeWhitespace(sentence);
+  const tokenCount = normalized.split(/\s+/).length;
+  let score = 0;
+
+  if (tokenCount >= 8 && tokenCount <= 28) score += 3;
+  else if (tokenCount >= 5) score += 1.5;
+
+  if (/[A-Z][a-z]/.test(sentence)) score += 0.8;
+  if (/\b(must|should|provides|supports|requires|ensures|enables|preserves)\b/i.test(sentence)) score += 1.5;
+  if (/\b(is|are|means|includes)\b/i.test(sentence)) score += 0.8;
+  if (/[:;]/.test(sentence)) score += 0.3;
+
+  score -= index * 0.1;
+  return score;
 }
 
 function splitSentences(text: string): string[] {
@@ -338,6 +407,55 @@ function truncate(text: string, maxChars: number): string {
 
 function normalizeForHash(text: string): string {
   return normalizeWhitespace(text).toLowerCase();
+}
+
+function canonicalizeForDedup(text: string, title: string): string {
+  const normalizedText = normalizeWhitespace(text)
+    .toLowerCase()
+    .replace(/^#+\s*/gm, "")
+    .replace(/\b\d+[\.\)]\s+/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+  const normalizedTitle = normalizeWhitespace(title)
+    .toLowerCase()
+    .replace(/^\d+[\.\)]\s+/, "")
+    .replace(/\s+/g, " ")
+    .trim();
+  return `${normalizedTitle}\n${normalizedText}`;
+}
+
+function hasRepeatedLines(text: string): boolean {
+  const lines = text
+    .split("\n")
+    .map((line) => normalizeWhitespace(line))
+    .filter((line) => line.length > 0);
+  if (lines.length < 2) return false;
+
+  const seen = new Set<string>();
+  for (const line of lines) {
+    if (seen.has(line)) return true;
+    seen.add(line);
+  }
+  return false;
+}
+
+function looksNoisy(text: string): boolean {
+  const punctuationRuns = (text.match(/[^\w\s]{3,}/g) ?? []).length;
+  const digits = (text.match(/\d/g) ?? []).length;
+  return punctuationRuns > 1 || (text.length > 0 && digits / text.length > 0.2);
+}
+
+function containsMostlyUppercaseWords(text: string): boolean {
+  const words = text.match(/[A-Za-z]{3,}/g) ?? [];
+  if (words.length === 0) return false;
+  const uppercaseWords = words.filter((word) => word === word.toUpperCase());
+  return uppercaseWords.length / words.length > 0.4;
+}
+
+function averageSentenceLength(sentences: string[]): number {
+  if (sentences.length === 0) return 0;
+  const totalWords = sentences.reduce((sum, sentence) => sum + sentence.split(/\s+/).length, 0);
+  return totalWords / sentences.length;
 }
 
 function digest(input: string): string {

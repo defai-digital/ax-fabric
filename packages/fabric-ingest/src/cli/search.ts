@@ -1,24 +1,15 @@
-/**
- * `ax-fabric search "<query>"` — search for documents using vector similarity.
- */
-
-import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { homedir } from "node:os";
 
 import type { Command } from "commander";
 import { AkiDB } from "@ax-fabric/akidb";
-import type { ExplainInfo } from "@ax-fabric/akidb";
-import type { MetadataFilter } from "@ax-fabric/akidb";
-
-import { JobRegistry } from "../registry/index.js";
-import { SemanticStore, type SemanticUnitLookup } from "../semantic/index.js";
 
 import { loadConfig, resolveConfigPath, resolveDataRoot } from "./config-loader.js";
 import { createEmbedderFromConfig } from "./create-embedder.js";
 import type { LlmProvider } from "@ax-fabric/contracts";
 import { createLlmFromConfig } from "./create-llm.js";
 import { MemoryStore } from "../memory/index.js";
+import { buildCliFilters, executeSearch, parseRequestedLayer } from "../retrieval/index.js";
 
 /** Expand a leading `~` to the current user's home directory. */
 function expandTilde(p: string): string {
@@ -86,10 +77,8 @@ export function registerSearchCommand(program: Command): void {
       // When --answer is requested, enable explain to get chunk previews for RAG
       const needExplain = opts.answer === true || opts.explain === true;
 
-      // Determine which collection(s) to query
-      const rawCollectionId = config.akidb.collection;
-      const semanticCollectionId = `${rawCollectionId}${config.retrieval.semantic_collection_suffix}`;
-      const resultMetadataByChunkId = loadSearchMetadata(dataRoot);
+        const rawCollectionId = config.akidb.collection;
+        const semanticCollectionId = `${rawCollectionId}${config.retrieval.semantic_collection_suffix}`;
 
       try {
         let queryVector = new Float32Array(0);
@@ -102,135 +91,26 @@ export function registerSearchCommand(program: Command): void {
           queryVector = new Float32Array(vec0);
         }
 
+        const filters = buildCliFilters(opts);
         const requestedLayer = parseRequestedLayer(opts);
-        const activeLayer = resolveRetrievalLayer({
+        const searchExecution = await executeSearch({
+          db,
+          dataRoot,
+          rawCollectionId,
+          semanticCollectionId,
           requestedLayer,
           defaultLayer: config.retrieval.default_layer,
-          dataRoot,
-          semanticCollectionId,
-          db,
+          queryVector,
+          topK,
+          mode,
+          queryText: mode === "keyword" || mode === "hybrid" ? query : undefined,
+          filters,
+          explain: needExplain,
+          warn: (message) => console.warn(message),
         });
-        const activeCollectionId = activeLayer === "semantic" ? semanticCollectionId : rawCollectionId;
-        const filters = buildCliFilters(opts);
-
-        type RenderedResult = {
-          chunkId: string;
-          score: number;
-          sourcePath: string | null;
-          contentType: string | null;
-          explain: ExplainInfo | null | undefined;
-          collection?: string;
-        };
-
-        let renderedResults: RenderedResult[] = [];
-        let manifestVersionUsed: number | undefined;
-
-        if (activeLayer === "fused") {
-          // Client-side RRF fusion across raw and semantic collections
-          const rawResult = await db.search({
-            collectionId: rawCollectionId,
-            queryVector,
-            topK,
-            mode,
-            queryText: mode === "keyword" || mode === "hybrid" ? query : undefined,
-            filters,
-            explain: needExplain,
-          });
-
-          let semanticResults: typeof rawResult.results = [];
-          try {
-            const semResult = await db.search({
-              collectionId: semanticCollectionId,
-              queryVector,
-              topK,
-              mode,
-              queryText: mode === "keyword" || mode === "hybrid" ? query : undefined,
-              filters,
-              explain: needExplain,
-            });
-            semanticResults = semResult.results;
-          } catch {
-            console.warn(`Warning: semantic collection "${semanticCollectionId}" not found — falling back to raw-only results`);
-          }
-
-          manifestVersionUsed = rawResult.manifestVersionUsed;
-
-          // RRF fusion: score = 1/(60 + rank) per collection, sum scores, deduplicate by underlying provenance
-          type ScoredEntry = {
-            chunkId: string;
-            rrfScore: number;
-            collection: string;
-            originalResult: typeof rawResult.results[number];
-            dedupeKey: string;
-          };
-          const byDedupeKey = new Map<string, ScoredEntry>();
-
-          const applyRrf = (results: typeof rawResult.results, collection: string): void => {
-            results.forEach((result, idx) => {
-              const rank = idx + 1;
-              const rrfContrib = 1 / (60 + rank);
-              const dedupeKey = resultMetadataByChunkId.get(result.chunkId)?.dedupeKey ?? result.chunkId;
-              const existing = byDedupeKey.get(dedupeKey);
-              if (existing) {
-                existing.rrfScore += rrfContrib;
-                if (existing.collection !== collection) {
-                  existing.collection = "raw+semantic";
-                }
-              } else {
-                byDedupeKey.set(dedupeKey, {
-                  chunkId: result.chunkId,
-                  rrfScore: rrfContrib,
-                  collection,
-                  originalResult: result,
-                  dedupeKey,
-                });
-              }
-            });
-          };
-
-          applyRrf(rawResult.results, "raw");
-          applyRrf(semanticResults, "semantic");
-
-          const fused = Array.from(byDedupeKey.values())
-            .sort((a, b) => b.rrfScore - a.rrfScore)
-            .slice(0, topK);
-
-          renderedResults = fused.map((entry) => {
-            const meta = resultMetadataByChunkId.get(entry.chunkId);
-            return {
-              chunkId: entry.chunkId,
-              score: entry.rrfScore,
-              sourcePath: meta?.sourcePath ?? null,
-              contentType: meta?.contentType ?? null,
-              explain: entry.originalResult.explain ?? null,
-              collection: entry.collection,
-            } as RenderedResult;
-          });
-
-        } else {
-          const searchResult = await db.search({
-            collectionId: activeCollectionId,
-            queryVector,
-            topK,
-            mode,
-            queryText: mode === "keyword" || mode === "hybrid" ? query : undefined,
-            filters,
-            explain: needExplain,
-          });
-
-          manifestVersionUsed = searchResult.manifestVersionUsed;
-
-          renderedResults = searchResult.results.map((result) => {
-            const meta = resultMetadataByChunkId.get(result.chunkId);
-            return {
-              chunkId: result.chunkId,
-              score: result.score,
-              sourcePath: meta?.sourcePath ?? null,
-              contentType: meta?.contentType ?? null,
-              explain: result.explain ?? null,
-            } as RenderedResult;
-          });
-        }
+        const activeLayer = searchExecution.layer;
+        const renderedResults = searchExecution.results;
+        const manifestVersionUsed = searchExecution.manifestVersion;
 
         if (renderedResults.length === 0) {
           console.log("No results found.");
@@ -242,7 +122,7 @@ export function registerSearchCommand(program: Command): void {
             query,
             mode,
             topK,
-            collection: activeLayer === "fused" ? "fused" : activeCollectionId,
+            collection: searchExecution.collectionId,
             layer: activeLayer,
             filters: filters ?? null,
             manifestVersion: manifestVersionUsed,
@@ -390,187 +270,4 @@ function trimPreview(text: string, maxChars = 220): string {
     return trimmed;
   }
   return `${trimmed.slice(0, maxChars - 3)}...`;
-}
-
-/**
- * Build a lookup map from chunk_id -> file metadata using the Job Registry.
- */
-function buildChunkIndex(
-  registry: JobRegistry,
-): Map<string, SearchResultMetadata> {
-  const map = new Map<string, SearchResultMetadata>();
-  const files = registry.listFiles();
-
-  for (const file of files) {
-    for (const chunkId of file.chunkIds) {
-      map.set(chunkId, {
-        sourcePath: file.sourcePath,
-        contentType: guessContentType(file.sourcePath),
-        dedupeKey: chunkId,
-      });
-    }
-  }
-
-  return map;
-}
-
-function buildCliFilters(opts: {
-  sourceUri?: string;
-  contentType?: string;
-  chunkLabel?: string;
-}): MetadataFilter | undefined {
-  const filters: Record<string, string> = {};
-  if (opts.sourceUri) {
-    filters["source_uri"] = opts.sourceUri;
-  }
-  if (opts.contentType) {
-    validateContentType(opts.contentType);
-    filters["content_type"] = opts.contentType;
-  }
-  if (opts.chunkLabel) {
-    validateChunkLabel(opts.chunkLabel);
-    filters["chunk_label"] = opts.chunkLabel;
-  }
-  return Object.keys(filters).length > 0 ? filters : undefined;
-}
-
-function parseRequestedLayer(opts: {
-  layer?: string;
-  semantic?: boolean;
-  fuse?: boolean;
-}): "auto" | "raw" | "semantic" | "fused" {
-  if (opts.fuse === true) return "fused";
-  if (opts.semantic === true) return "semantic";
-  if (!opts.layer) return "auto";
-  if (opts.layer === "auto" || opts.layer === "raw" || opts.layer === "semantic" || opts.layer === "fused") {
-    return opts.layer;
-  }
-  throw new Error("--layer must be one of: auto, raw, semantic, fused");
-}
-
-function resolveRetrievalLayer(args: {
-  requestedLayer: "auto" | "raw" | "semantic" | "fused";
-  defaultLayer: "auto" | "raw" | "semantic" | "fused";
-  dataRoot: string;
-  semanticCollectionId: string;
-  db: AkiDB;
-}): "raw" | "semantic" | "fused" {
-  const desired = args.requestedLayer === "auto" ? args.defaultLayer : args.requestedLayer;
-  if (desired === "raw") return "raw";
-
-  const semanticReady = hasPublishedSemanticCollection(args.dataRoot, args.semanticCollectionId)
-    && hasCollection(args.db, args.semanticCollectionId);
-
-  if (desired === "semantic" || desired === "fused") {
-    if (!semanticReady) {
-      console.warn(`Warning: semantic collection "${args.semanticCollectionId}" is not ready — falling back to raw retrieval`);
-      return "raw";
-    }
-    return desired;
-  }
-
-  return semanticReady ? "fused" : "raw";
-}
-
-function hasCollection(db: AkiDB, collectionId: string): boolean {
-  try {
-    db.getCollection(collectionId);
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-function hasPublishedSemanticCollection(dataRoot: string, semanticCollectionId: string): boolean {
-  const semanticDbPath = join(dataRoot, "semantic.db");
-  if (!existsSync(semanticDbPath)) {
-    return false;
-  }
-
-  try {
-    const store = new SemanticStore(semanticDbPath);
-    try {
-      return store.listBundles().some((summary) => summary.publishedCollectionId === semanticCollectionId);
-    } finally {
-      store.close();
-    }
-  } catch {
-    return false;
-  }
-}
-
-function validateContentType(value: string): void {
-  if (!["txt", "md", "pdf", "docx", "pptx", "xlsx", "csv", "json", "yaml"].includes(value)) {
-    throw new Error("--content-type must be one of: txt, md, pdf, docx, pptx, xlsx, csv, json, yaml");
-  }
-}
-
-function validateChunkLabel(value: string): void {
-  if (!["paragraph", "heading", "table", "code", "list", "text"].includes(value)) {
-    throw new Error("--chunk-label must be one of: paragraph, heading, table, code, list, text");
-  }
-}
-
-interface SearchResultMetadata {
-  sourcePath: string;
-  contentType: string;
-  dedupeKey: string;
-}
-
-function loadSearchMetadata(dataRoot: string): Map<string, SearchResultMetadata> {
-  const metadata = new Map<string, SearchResultMetadata>();
-
-  const registryDbPath = join(dataRoot, "registry.db");
-  try {
-    const registry = new JobRegistry(registryDbPath);
-    try {
-      for (const [chunkId, value] of buildChunkIndex(registry)) {
-        metadata.set(chunkId, value);
-      }
-    } finally {
-      registry.close();
-    }
-  } catch (err) {
-    console.warn(`Warning: could not load registry (source paths will be missing): ${err instanceof Error ? err.message : String(err)}`);
-  }
-
-  const semanticDbPath = join(dataRoot, "semantic.db");
-  if (!existsSync(semanticDbPath)) {
-    return metadata;
-  }
-
-  try {
-    const store = new SemanticStore(semanticDbPath);
-    try {
-      for (const lookup of store.listPublishedUnitLookups()) {
-        setSemanticLookup(metadata, lookup);
-      }
-    } finally {
-      store.close();
-    }
-  } catch (err) {
-    console.warn(`Warning: could not load semantic store (semantic source paths will be missing): ${err instanceof Error ? err.message : String(err)}`);
-  }
-
-  return metadata;
-}
-
-function setSemanticLookup(
-  metadata: Map<string, SearchResultMetadata>,
-  lookup: SemanticUnitLookup,
-): void {
-  metadata.set(lookup.chunkId, {
-    sourcePath: lookup.sourcePath,
-    contentType: lookup.contentType,
-    dedupeKey: lookup.dedupeKey,
-  });
-}
-
-function guessContentType(sourcePath: string): string {
-  const ext = sourcePath.split(".").pop()?.toLowerCase() ?? "";
-  const map: Record<string, string> = {
-    txt: "txt", md: "md", markdown: "md", pdf: "pdf", docx: "docx", pptx: "pptx",
-    xlsx: "xlsx", csv: "csv", json: "json", yaml: "yaml", yml: "yaml",
-  };
-  return map[ext] ?? "unknown";
 }

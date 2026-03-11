@@ -1058,6 +1058,115 @@ describe("CLI commands", () => {
         expect(entry.hitRate).toBe(0);
       }
     });
+
+    it("supports a passing benchmark gate for raw evaluation", async () => {
+      writeFileSync(
+        join(sourceDir, "eval-gate-pass.txt"),
+        "Benchmark gate pass fixture for retrieval evaluation.",
+      );
+
+      (mockConfig as { ingest: { sources: Array<{ path: string }> } }).ingest.sources = [
+        { path: sourceDir },
+      ];
+
+      const runProgram = new Command();
+      runProgram.exitOverride();
+      const runIngest = runProgram.command("ingest");
+      registerIngestRunCommand(runIngest);
+      const runLogSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+      await runProgram.parseAsync(["node", "test", "ingest", "run"]);
+      runLogSpy.mockRestore();
+
+      const fixturePath = join(workDir, "eval-gate-pass-fixture.json");
+      writeFileSync(
+        fixturePath,
+        JSON.stringify({
+          cases: [
+            {
+              query: "benchmark gate retrieval",
+              expected_sources: [join(sourceDir, "eval-gate-pass.txt")],
+            },
+          ],
+        }, null, 2),
+        "utf-8",
+      );
+
+      const gatePath = join(workDir, "eval-gate-pass.json");
+      writeFileSync(
+        gatePath,
+        JSON.stringify({
+          raw: {
+            vector: { min_hit_rate: 0 },
+            hybrid: { min_hit_rate: 0 },
+          },
+        }, null, 2),
+        "utf-8",
+      );
+
+      const evalProgram = new Command();
+      evalProgram.exitOverride();
+      registerEvalCommand(evalProgram);
+
+      const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+      await evalProgram.parseAsync(["node", "test", "eval", fixturePath, "--gate", gatePath]);
+      const output = logSpy.mock.calls.map((c) => c.join(" ")).join("\n");
+      logSpy.mockRestore();
+
+      expect(output).toContain("Gate:");
+      expect(output).toContain("pass");
+    });
+
+    it("fails when benchmark gate thresholds are not met", async () => {
+      writeFileSync(
+        join(sourceDir, "eval-gate-fail.txt"),
+        "Benchmark gate failure fixture.",
+      );
+
+      (mockConfig as { ingest: { sources: Array<{ path: string }> } }).ingest.sources = [
+        { path: sourceDir },
+      ];
+
+      const runProgram = new Command();
+      runProgram.exitOverride();
+      const runIngest = runProgram.command("ingest");
+      registerIngestRunCommand(runIngest);
+      const runLogSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+      await runProgram.parseAsync(["node", "test", "ingest", "run"]);
+      runLogSpy.mockRestore();
+
+      const fixturePath = join(workDir, "eval-gate-fail-fixture.json");
+      writeFileSync(
+        fixturePath,
+        JSON.stringify({
+          cases: [
+            {
+              query: "benchmark gate impossible threshold",
+              expected_sources: ["/definitely/not/a/match.txt"],
+            },
+          ],
+        }, null, 2),
+        "utf-8",
+      );
+
+      const gatePath = join(workDir, "eval-gate-fail.json");
+      writeFileSync(
+        gatePath,
+        JSON.stringify({
+          raw: {
+            vector: { min_hit_rate: 1 },
+          },
+        }, null, 2),
+        "utf-8",
+      );
+
+      const evalProgram = new Command();
+      evalProgram.exitOverride();
+      registerEvalCommand(evalProgram);
+
+      await expect(
+        evalProgram.parseAsync(["node", "test", "eval", fixturePath, "--gate", gatePath]),
+      ).rejects.toThrow(/Benchmark gate failed/);
+    });
   });
 
   describe("memory", () => {
@@ -1774,6 +1883,101 @@ describe("CLI commands", () => {
       expect(output).toContain("test-col");
       expect(output).toContain(semanticCollection);
       expect(output).toContain("Comparison");
+    });
+
+    it("eval --compare supports benchmark delta gates", async () => {
+      const sourceFile = join(sourceDir, "eval-compare-gate-target.txt");
+      writeFileSync(
+        sourceFile,
+        "Comparison gate fixture for raw and semantic retrieval.",
+        "utf-8",
+      );
+      const dbPath = join(dataRoot, "semantic.db");
+      const semanticCollection = "test-col-semantic";
+
+      (mockConfig as { ingest: { sources: Array<{ path: string }> } }).ingest.sources = [
+        { path: sourceDir },
+      ];
+
+      const runProgram = new Command();
+      runProgram.exitOverride();
+      const runIngest = runProgram.command("ingest");
+      registerIngestRunCommand(runIngest);
+      const runLogSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+      await runProgram.parseAsync(["node", "test", "ingest", "run"]);
+      runLogSpy.mockRestore();
+
+      const semanticProgram = new Command();
+      semanticProgram.exitOverride();
+      registerSemanticCommand(semanticProgram);
+      const semLogSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+
+      await semanticProgram.parseAsync([
+        "node", "test", "semantic", "store", sourceFile, "--db", dbPath,
+      ]);
+
+      const store = new SemanticStore(dbPath);
+      const bundleId = store.listBundles()[0]!.bundleId;
+      store.close();
+
+      await semanticProgram.parseAsync([
+        "node", "test", "semantic", "approve-store", bundleId,
+        "--reviewer", "ci",
+        "--min-quality", "0.1",
+        "--duplicate-policy", "warn",
+        "--db", dbPath,
+      ]);
+
+      await semanticProgram.parseAsync([
+        "node", "test", "semantic", "publish", bundleId,
+        "--db", dbPath,
+        "--collection", semanticCollection,
+      ]);
+      semLogSpy.mockRestore();
+
+      const fixturePath = join(workDir, "eval-compare-gate-fixture.json");
+      writeFileSync(
+        fixturePath,
+        JSON.stringify({
+          cases: [
+            {
+              query: "comparison gate retrieval",
+              expected_sources: [sourceFile],
+              top_k: 3,
+            },
+          ],
+        }, null, 2),
+        "utf-8",
+      );
+
+      const gatePath = join(workDir, "eval-compare-gate.json");
+      writeFileSync(
+        gatePath,
+        JSON.stringify({
+          compare: {
+            vector: { min_delta_rate: 0 },
+            hybrid: { min_delta_rate: 0 },
+          },
+        }, null, 2),
+        "utf-8",
+      );
+
+      db.close();
+      db = new AkiDB({ storagePath: akidbRoot });
+
+      const evalProgram = new Command();
+      evalProgram.exitOverride();
+      registerEvalCommand(evalProgram);
+
+      const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+      const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+      await evalProgram.parseAsync(["node", "test", "eval", fixturePath, "--compare", "--gate", gatePath]);
+      const output = logSpy.mock.calls.map((c) => c.join(" ")).join("\n");
+      logSpy.mockRestore();
+      warnSpy.mockRestore();
+
+      expect(output).toContain("Gate:");
+      expect(output).toContain("pass");
     });
   });
 });

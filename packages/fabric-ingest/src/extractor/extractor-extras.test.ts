@@ -456,6 +456,14 @@ describe("SqlExtractor inline parsing", () => {
     expect(text).toContain("Table: items");
     expect(text).toContain("name: thing");
   });
+
+  it("handles lowercase 'values' keyword", async () => {
+    const text = await extract(
+      "insert into products (id, name) values (1, 'Widget');",
+    );
+    expect(text).toContain("Table: products");
+    expect(text).toContain("name: Widget");
+  });
 });
 
 /* ================================================================== */
@@ -528,6 +536,11 @@ describe("htmlToMarkdown", () => {
 
   it("converts <a href> to markdown links", () => {
     const result = htmlToMarkdown('<a href="https://example.com">Click</a>');
+    expect(result).toContain("[Click](https://example.com)");
+  });
+
+  it("converts single-quoted <a href> to markdown links", () => {
+    const result = htmlToMarkdown("<a href='https://example.com'>Click</a>");
     expect(result).toContain("[Click](https://example.com)");
   });
 

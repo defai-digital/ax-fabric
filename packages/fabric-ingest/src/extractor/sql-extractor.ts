@@ -130,9 +130,10 @@ function parseSqlDump(content: string): ParsedTable[] {
       }
 
       // Extract value groups: (val1, val2, val3)
-      const valuesSection = insertText.slice(
-        insertText.indexOf("VALUES") + 6,
-      );
+      const valuesIdx = insertText.search(/VALUES/i);
+      const valuesSection = valuesIdx >= 0
+        ? insertText.slice(valuesIdx + 6)
+        : "";
       const valueGroups = extractValueGroups(valuesSection);
 
       for (const group of valueGroups) {

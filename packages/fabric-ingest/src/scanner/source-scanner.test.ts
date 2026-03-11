@@ -196,7 +196,8 @@ describe("fingerprintAsync (auto-selector)", () => {
 
 describe("SourceScanner", () => {
   const ALL_EXTENSIONS = [
-    ".txt", ".pdf", ".docx", ".pptx", ".xlsx", ".csv", ".json", ".yaml", ".yml",
+    ".txt", ".pdf", ".docx", ".pptx", ".xlsx", ".csv", ".tsv", ".json", ".jsonl",
+    ".yaml", ".yml", ".html", ".htm", ".rtf", ".sql", ".log", ".md", ".markdown",
   ];
 
   describe("scan", () => {
@@ -330,6 +331,8 @@ describe("SourceScanner", () => {
       writeFileSync(join(tempDir, "f.csv"), "c");
       writeFileSync(join(tempDir, "g.json"), "j");
       writeFileSync(join(tempDir, "h.yaml"), "y");
+      writeFileSync(join(tempDir, "i.md"), "# heading");
+      writeFileSync(join(tempDir, "j.markdown"), "# heading");
 
       const scanner = new SourceScanner({ extensions: ALL_EXTENSIONS });
       const results = scanner.scan(tempDir);
@@ -343,6 +346,17 @@ describe("SourceScanner", () => {
       expect(typeMap.has("csv")).toBe(true);
       expect(typeMap.has("json")).toBe(true);
       expect(typeMap.has("yaml")).toBe(true);
+      expect(typeMap.has("md")).toBe(true);
+    });
+
+    it("maps .markdown to md content type", () => {
+      writeFileSync(join(tempDir, "readme.markdown"), "# title");
+
+      const scanner = new SourceScanner({ extensions: [".markdown"] });
+      const results = scanner.scan(tempDir);
+
+      expect(results).toHaveLength(1);
+      expect(results[0]!.contentType).toBe("md");
     });
   });
 

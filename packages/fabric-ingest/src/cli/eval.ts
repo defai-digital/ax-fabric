@@ -30,6 +30,28 @@ interface ModeSummary {
   missAtK: number;
 }
 
+const GateThresholdSchema = z.object({
+  min_hit_rate: z.number().min(0).max(1).optional(),
+  min_hit_at_k: z.number().int().nonnegative().optional(),
+  min_delta_rate: z.number().min(-1).max(1).optional(),
+  min_delta_hit: z.number().int().optional(),
+});
+
+const GateModeMapSchema = z.object({
+  vector: GateThresholdSchema.optional(),
+  keyword: GateThresholdSchema.optional(),
+  hybrid: GateThresholdSchema.optional(),
+}).partial();
+
+const EvalGateSchema = z.object({
+  raw: GateModeMapSchema.optional(),
+  semantic: GateModeMapSchema.optional(),
+  compare: GateModeMapSchema.optional(),
+});
+
+type ModeTotals = ModeSummary & { hitRate: number };
+type EvalGate = z.infer<typeof EvalGateSchema>;
+
 function expandTilde(p: string): string {
   if (p === "~" || p.startsWith("~/")) {
     return join(homedir(), p.slice(2));
@@ -58,7 +80,8 @@ export function registerEvalCommand(program: Command): void {
     .option("--json", "Print machine-readable evaluation output")
     .option("-k, --top-k <number>", "Override top-k for all cases", "5")
     .option("--compare", "Compare raw vs semantic collection retrieval quality")
-    .action(async (fixturePath: string, opts: { json?: boolean; topK: string; compare?: boolean }) => {
+    .option("--gate <path>", "Apply benchmark thresholds from a JSON gate file and fail on regression")
+    .action(async (fixturePath: string, opts: { json?: boolean; topK: string; compare?: boolean; gate?: string }) => {
       const configPath = resolveConfigPath();
       const config = loadConfig(configPath);
       const topKOverride = Number.parseInt(opts.topK, 10);
@@ -69,6 +92,9 @@ export function registerEvalCommand(program: Command): void {
 
       const fixtureRaw = readFileSync(fixturePath, "utf-8");
       const parsedFixture = EvalFixtureSchema.parse(JSON.parse(fixtureRaw));
+      const gate = opts.gate
+        ? EvalGateSchema.parse(JSON.parse(readFileSync(opts.gate, "utf-8")) as unknown)
+        : null;
 
       const dataRoot = resolveDataRoot(config);
       const registryDbPath = join(dataRoot, "registry.db");
@@ -190,6 +216,14 @@ export function registerEvalCommand(program: Command): void {
               hitRate: entry.cases > 0 ? entry.hitAtK / entry.cases : 0,
             }));
 
+            const gateResult = gate
+              ? evaluateGate({
+                gate,
+                rawTotals,
+                semanticTotals,
+              })
+              : null;
+
             if (opts.json) {
               const delta = rawTotals.map((rawEntry) => {
                 const semEntry = semanticTotals.find((s) => s.mode === rawEntry.mode)!;
@@ -212,7 +246,11 @@ export function registerEvalCommand(program: Command): void {
                   totals: semanticTotals,
                 },
                 delta,
+                gate: gateResult,
               }, null, 2));
+              if (gateResult && !gateResult.ok) {
+                throw new Error(formatGateFailure(gateResult.failures));
+              }
               return;
             }
 
@@ -249,6 +287,12 @@ export function registerEvalCommand(program: Command): void {
               );
             }
             console.log();
+            if (gateResult) {
+              printGateResult(gateResult);
+              if (!gateResult.ok) {
+                throw new Error(formatGateFailure(gateResult.failures));
+              }
+            }
             return;
           }
         }
@@ -258,18 +302,30 @@ export function registerEvalCommand(program: Command): void {
         await embedder.close?.();
       }
 
+      const totals = Array.from(rawModeSummaries.values()).map((entry) => ({
+        ...entry,
+        hitRate: entry.cases > 0 ? entry.hitAtK / entry.cases : 0,
+      }));
+      const gateResult = gate
+        ? evaluateGate({
+          gate,
+          rawTotals: totals,
+        })
+        : null;
+
       const summary = {
         fixturePath,
         collectionId: rawCollectionId,
-        totals: Array.from(rawModeSummaries.values()).map((entry) => ({
-          ...entry,
-          hitRate: entry.cases > 0 ? entry.hitAtK / entry.cases : 0,
-        })),
+        totals,
         cases: caseResults,
+        gate: gateResult,
       };
 
       if (opts.json) {
         console.log(JSON.stringify(summary, null, 2));
+        if (gateResult && !gateResult.ok) {
+          throw new Error(formatGateFailure(gateResult.failures));
+        }
         return;
       }
 
@@ -284,7 +340,112 @@ export function registerEvalCommand(program: Command): void {
         );
       }
       console.log();
+      if (gateResult) {
+        printGateResult(gateResult);
+        if (!gateResult.ok) {
+          throw new Error(formatGateFailure(gateResult.failures));
+        }
+      }
     });
+}
+
+function evaluateGate(args: {
+  gate: EvalGate;
+  rawTotals: ModeTotals[];
+  semanticTotals?: ModeTotals[];
+}): {
+  ok: boolean;
+  failures: string[];
+} {
+  const failures: string[] = [];
+
+  applyThresholdGroup("raw", args.gate.raw, args.rawTotals, undefined, failures);
+  applyThresholdGroup("semantic", args.gate.semantic, args.semanticTotals, undefined, failures);
+  applyThresholdGroup("compare", args.gate.compare, args.rawTotals, args.semanticTotals, failures);
+
+  return {
+    ok: failures.length === 0,
+    failures,
+  };
+}
+
+function applyThresholdGroup(
+  label: "raw" | "semantic" | "compare",
+  group: EvalGate["raw"],
+  baseTotals: ModeTotals[] | undefined,
+  compareTotals: ModeTotals[] | undefined,
+  failures: string[],
+): void {
+  if (!group) return;
+  if (!baseTotals) {
+    failures.push(`${label}: requested thresholds but corresponding totals are unavailable`);
+    return;
+  }
+
+  for (const mode of ["vector", "keyword", "hybrid"] as const) {
+    const threshold = group[mode];
+    if (!threshold) continue;
+
+    const base = baseTotals.find((entry) => entry.mode === mode);
+    if (!base) {
+      failures.push(`${label}.${mode}: totals unavailable`);
+      continue;
+    }
+
+    if (label === "compare") {
+      if (!compareTotals) {
+        failures.push(`compare.${mode}: semantic comparison totals are unavailable`);
+        continue;
+      }
+      const compare = compareTotals.find((entry) => entry.mode === mode);
+      if (!compare) {
+        failures.push(`compare.${mode}: semantic totals unavailable`);
+        continue;
+      }
+      if (threshold.min_delta_rate !== undefined) {
+        const deltaRate = compare.hitRate - base.hitRate;
+        if (deltaRate < threshold.min_delta_rate) {
+          failures.push(
+            `compare.${mode}: delta_rate ${deltaRate.toFixed(3)} < required ${threshold.min_delta_rate.toFixed(3)}`,
+          );
+        }
+      }
+      if (threshold.min_delta_hit !== undefined) {
+        const deltaHit = compare.hitAtK - base.hitAtK;
+        if (deltaHit < threshold.min_delta_hit) {
+          failures.push(
+            `compare.${mode}: delta_hit ${String(deltaHit)} < required ${String(threshold.min_delta_hit)}`,
+          );
+        }
+      }
+      continue;
+    }
+
+    if (threshold.min_hit_rate !== undefined && base.hitRate < threshold.min_hit_rate) {
+      failures.push(
+        `${label}.${mode}: hit_rate ${base.hitRate.toFixed(3)} < required ${threshold.min_hit_rate.toFixed(3)}`,
+      );
+    }
+    if (threshold.min_hit_at_k !== undefined && base.hitAtK < threshold.min_hit_at_k) {
+      failures.push(
+        `${label}.${mode}: hit_at_k ${String(base.hitAtK)} < required ${String(threshold.min_hit_at_k)}`,
+      );
+    }
+  }
+}
+
+function printGateResult(result: { ok: boolean; failures: string[] }): void {
+  console.log(`Gate:              ${result.ok ? "pass" : "fail"}`);
+  if (!result.ok) {
+    for (const failure of result.failures) {
+      console.log(`  gate_failure:    ${failure}`);
+    }
+  }
+  console.log();
+}
+
+function formatGateFailure(failures: string[]): string {
+  return `Benchmark gate failed: ${failures.join("; ")}`;
 }
 
 async function evaluateCase(args: {

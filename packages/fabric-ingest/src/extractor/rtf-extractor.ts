@@ -111,8 +111,8 @@ function rtfToText(rtf: string): string {
       // Hex escape: \'XX
       if (next === "'") {
         i++;
-        const hex = rtf.slice(i, i + 2);
-        i += 2;
+        const hex = /^[0-9a-fA-F]{0,2}/.exec(rtf.slice(i))?.[0] ?? "";
+        i += hex.length;
         const code = parseInt(hex, 16);
         if (!isNaN(code)) {
           output.push(String.fromCharCode(code));

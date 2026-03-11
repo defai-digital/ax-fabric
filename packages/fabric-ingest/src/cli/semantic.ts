@@ -270,6 +270,7 @@ export function registerSemanticCommand(program: Command): void {
     .description("Publish an approved stored semantic bundle into AkiDB")
     .option("--db <path>", "Override semantic.db path")
     .option("--collection <id>", "Target AkiDB collection (default: <config.collection>-semantic)")
+    .option("--replace", "Replace the currently published bundle for the same doc and collection")
     .action(async (bundleId: string, opts: PublishOptions) => {
       const config = loadConfig(resolveConfigPath());
       const store = openSemanticStore(opts.db);
@@ -289,10 +290,27 @@ export function registerSemanticCommand(program: Command): void {
         const collectionId = opts.collection ?? `${config.akidb.collection}${config.retrieval.semantic_collection_suffix}`;
         const existingPublication = store.findPublishedBundleForDoc(bundle.doc_id, collectionId);
         if (existingPublication && existingPublication.bundleId !== bundle.bundle_id) {
-          throw new Error(
-            `Semantic collection "${collectionId}" already has an active published bundle for doc_id "${bundle.doc_id}" `
-            + `(${existingPublication.bundleId}). Publish into a different collection or replace the existing publication first.`,
-          );
+          if (opts.replace !== true) {
+            throw new Error(
+              `Semantic collection "${collectionId}" already has an active published bundle for doc_id "${bundle.doc_id}" `
+              + `(${existingPublication.bundleId}). Publish into a different collection or rerun with --replace.`,
+            );
+          }
+
+          const existingBundle = store.getBundle(existingPublication.bundleId);
+          if (!existingBundle) {
+            throw new Error(`Published semantic bundle "${existingPublication.bundleId}" not found in canonical store`);
+          }
+
+          const existingChunkIds = semanticChunkIds(existingBundle);
+          if (existingChunkIds.length > 0) {
+            db.deleteChunks(collectionId, existingChunkIds, "manual_revoke");
+            await db.publish(collectionId, {
+              embeddingModelId: config.embedder.model_id,
+              pipelineSignature: semanticPipelineSignature(existingBundle),
+            });
+          }
+          store.clearPublished(existingBundle.bundle_id);
         }
         ensureCollection(db, config, collectionId);
         const records = await buildSemanticRecords(bundle, config, embedder);
@@ -310,6 +328,48 @@ export function registerSemanticCommand(program: Command): void {
       } finally {
         db.close();
         await embedder.close?.();
+        store.close();
+      }
+    });
+
+  semantic
+    .command("unpublish <bundleId>")
+    .description("Remove a published semantic bundle from its AkiDB collection and clear publication state")
+    .option("--db <path>", "Override semantic.db path")
+    .action(async (bundleId: string, opts: UnpublishOptions) => {
+      const config = loadConfig(resolveConfigPath());
+      const store = openSemanticStore(opts.db);
+      const akidbRoot = expandTilde(config.akidb.root);
+      const db = new AkiDB({ storagePath: akidbRoot });
+
+      try {
+        const stored = store.getStoredBundle(bundleId);
+        if (!stored) {
+          throw new Error(`Semantic bundle "${bundleId}" not found`);
+        }
+        if (!stored.publication) {
+          throw new Error(`Semantic bundle "${bundleId}" is not currently published`);
+        }
+
+        const chunkIds = semanticChunkIds(stored.bundle);
+        if (chunkIds.length > 0) {
+          db.deleteChunks(stored.publication.collectionId, chunkIds, "manual_revoke");
+          const manifest = await db.publish(stored.publication.collectionId, {
+            embeddingModelId: config.embedder.model_id,
+            pipelineSignature: semanticPipelineSignature(stored.bundle),
+          });
+          store.clearPublished(bundleId);
+          console.log(
+            `Unpublished semantic bundle ${bundleId} from ${stored.publication.collectionId} `
+            + `manifest=${String(manifest.version)}`,
+          );
+          return;
+        }
+
+        store.clearPublished(bundleId);
+        console.log(`Cleared publication state for semantic bundle ${bundleId}`);
+      } finally {
+        db.close();
         store.close();
       }
     });
@@ -374,6 +434,11 @@ interface ApproveStoreOptions {
 interface PublishOptions {
   db?: string;
   collection?: string;
+  replace?: boolean;
+}
+
+interface UnpublishOptions {
+  db?: string;
 }
 
 async function distillFromCli(
@@ -573,6 +638,10 @@ async function buildSemanticRecords(
 
 function semanticUnitText(unit: SemanticBundle["units"][number]): string {
   return `${unit.title}\n\n${unit.summary}\n\n${unit.answer}`;
+}
+
+function semanticChunkIds(bundle: SemanticBundle): string[] {
+  return bundle.units.map((unit) => `semantic:${unit.unit_id}`);
 }
 
 function semanticPipelineSignature(bundle: SemanticBundle): string {

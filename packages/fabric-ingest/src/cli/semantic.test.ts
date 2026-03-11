@@ -259,6 +259,67 @@ describe("semantic CLI", () => {
     }
   });
 
+  it("unpublishes a published bundle from akidb and clears publication state", async () => {
+    const workdir = mkdtempSync(join(tmpdir(), "semantic-cli-unpublish-"));
+    const filePath = join(workdir, "guide.txt");
+    const dataRoot = join(workdir, "data");
+    const akidbRoot = join(dataRoot, "akidb");
+    writeFileSync(
+      filePath,
+      "Semantic unpublish should remove published bundle records from the semantic collection.",
+      "utf8",
+    );
+    mockConfig = {
+      ...mockConfig,
+      fabric: { data_root: dataRoot, max_storage_gb: 50 },
+      akidb: { root: akidbRoot, collection: "test-col", metric: "cosine", dimension: 128 },
+    };
+
+    const program = makeProgram();
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    const db = new AkiDB({ storagePath: akidbRoot });
+
+    try {
+      await program.parseAsync(["node", "test", "semantic", "store", filePath]);
+      await program.parseAsync(["node", "test", "semantic", "bundles", "--json"]);
+      const jsonOutput = logSpy.mock.calls[logSpy.mock.calls.length - 1]![0] as string;
+      const bundles = JSON.parse(jsonOutput) as Array<{ bundleId: string }>;
+      const bundleId = bundles[0]!.bundleId;
+
+      await program.parseAsync([
+        "node", "test", "semantic", "approve-store", bundleId,
+        "--reviewer", "akira",
+        "--min-quality", "0.5",
+        "--duplicate-policy", "warn",
+      ]);
+      await program.parseAsync(["node", "test", "semantic", "publish", bundleId]);
+
+      let result = await db.search({
+        collectionId: "test-col-semantic",
+        queryVector: new Float32Array(Array.from({ length: 128 }, () => 0.1)),
+        topK: 5,
+      });
+      expect(result.results.length).toBeGreaterThan(0);
+
+      await program.parseAsync(["node", "test", "semantic", "unpublish", bundleId]);
+
+      result = await db.search({
+        collectionId: "test-col-semantic",
+        queryVector: new Float32Array(Array.from({ length: 128 }, () => 0.1)),
+        topK: 5,
+      });
+      expect(result.results).toHaveLength(0);
+
+      const store = new SemanticStore(join(dataRoot, "semantic.db"));
+      expect(store.getStoredBundle(bundleId)?.publication).toBeNull();
+      store.close();
+    } finally {
+      db.close();
+      logSpy.mockRestore();
+      rmSync(workdir, { recursive: true, force: true });
+    }
+  });
+
   it("refuses to publish a second active bundle for the same doc into the same collection", async () => {
     const workdir = mkdtempSync(join(tmpdir(), "semantic-cli-republish-"));
     const filePath = join(workdir, "guide.txt");
@@ -312,6 +373,77 @@ describe("semantic CLI", () => {
         program.parseAsync(["node", "test", "semantic", "publish", secondBundleId]),
       ).rejects.toThrow(/already has an active published bundle/);
     } finally {
+      rmSync(workdir, { recursive: true, force: true });
+    }
+  });
+
+  it("replaces a published bundle for the same doc when --replace is provided", async () => {
+    const workdir = mkdtempSync(join(tmpdir(), "semantic-cli-replace-"));
+    const filePath = join(workdir, "guide.txt");
+    const dataRoot = join(workdir, "data");
+    const akidbRoot = join(dataRoot, "akidb");
+    writeFileSync(
+      filePath,
+      "Semantic replace should swap the active published bundle for the same doc.",
+      "utf8",
+    );
+    mockConfig = {
+      ...mockConfig,
+      fabric: { data_root: dataRoot, max_storage_gb: 50 },
+      akidb: { root: akidbRoot, collection: "test-col", metric: "cosine", dimension: 128 },
+    };
+
+    const program = makeProgram();
+    const db = new AkiDB({ storagePath: akidbRoot });
+
+    try {
+      await program.parseAsync(["node", "test", "semantic", "store", filePath]);
+      let store = new SemanticStore(join(dataRoot, "semantic.db"));
+      const firstBundleId = store.listBundles()[0]!.bundleId;
+      store.close();
+
+      await program.parseAsync([
+        "node", "test", "semantic", "approve-store", firstBundleId,
+        "--reviewer", "akira",
+        "--min-quality", "0.5",
+        "--duplicate-policy", "warn",
+      ]);
+      await program.parseAsync(["node", "test", "semantic", "publish", firstBundleId]);
+
+      writeFileSync(
+        filePath,
+        "Semantic replace should publish a newer approved bundle for the same doc when replace is requested.",
+        "utf8",
+      );
+
+      await program.parseAsync(["node", "test", "semantic", "store", filePath]);
+      store = new SemanticStore(join(dataRoot, "semantic.db"));
+      const secondBundleId = store.listBundles()[0]!.bundleId;
+      store.close();
+
+      await program.parseAsync([
+        "node", "test", "semantic", "approve-store", secondBundleId,
+        "--reviewer", "akira",
+        "--min-quality", "0.5",
+        "--duplicate-policy", "warn",
+      ]);
+      await program.parseAsync(["node", "test", "semantic", "publish", secondBundleId, "--replace"]);
+
+      store = new SemanticStore(join(dataRoot, "semantic.db"));
+      expect(store.getStoredBundle(firstBundleId)?.publication).toBeNull();
+      expect(store.getStoredBundle(secondBundleId)?.publication?.collectionId).toBe("test-col-semantic");
+      store.close();
+
+      const result = await db.search({
+        collectionId: "test-col-semantic",
+        queryVector: new Float32Array(Array.from({ length: 128 }, () => 0.1)),
+        topK: 10,
+      });
+      const resultIds = new Set(result.results.map((entry) => entry.chunkId));
+      expect(resultIds.size).toBeGreaterThan(0);
+      expect(Array.from(resultIds).every((id) => id.startsWith("semantic:"))).toBe(true);
+    } finally {
+      db.close();
       rmSync(workdir, { recursive: true, force: true });
     }
   });

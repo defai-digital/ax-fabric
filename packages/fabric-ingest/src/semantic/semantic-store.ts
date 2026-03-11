@@ -5,6 +5,8 @@ import { DatabaseSync } from "node:sqlite";
 import type { SemanticBundle, SemanticReviewDecision } from "@ax-fabric/contracts";
 import { SemanticBundleSchema } from "@ax-fabric/contracts";
 
+const SEMANTIC_STORE_SCHEMA_VERSION = 1;
+
 export interface SemanticBundleSummary {
   bundleId: string;
   sourcePath: string;
@@ -50,7 +52,7 @@ export class SemanticStore {
     this.db = new DatabaseSync(dbPath);
     this.db.exec("PRAGMA journal_mode = WAL;");
     this.db.exec("PRAGMA foreign_keys = ON;");
-    this.createSchema();
+    this.migrateSchema();
   }
 
   upsertBundle(bundle: SemanticBundle): void {
@@ -346,6 +348,17 @@ export class SemanticStore {
     };
   }
 
+  hasPublishedCollection(collectionId: string): boolean {
+    const row = this.db.prepare(`
+      SELECT 1
+      FROM semantic_bundles
+      WHERE published_collection_id = ?
+      LIMIT 1
+    `).get(collectionId) as Record<string, unknown> | undefined;
+
+    return row !== undefined;
+  }
+
   updateReview(bundleId: string, review: SemanticReviewDecision): SemanticBundle {
     const bundle = this.getBundle(bundleId);
     if (!bundle) {
@@ -372,6 +385,32 @@ export class SemanticStore {
     );
   }
 
+  clearPublished(bundleId: string): void {
+    this.db.prepare(`
+      UPDATE semantic_bundles
+      SET
+        published_collection_id = NULL,
+        published_manifest_version = NULL,
+        published_at = NULL
+      WHERE bundle_id = ?
+    `).run(bundleId);
+  }
+
+  getSchemaVersion(): number {
+    const row = this.db.prepare(`
+      SELECT value
+      FROM semantic_store_metadata
+      WHERE key = 'schema_version'
+      LIMIT 1
+    `).get() as Record<string, unknown> | undefined;
+
+    if (!row) {
+      throw new Error("Semantic store schema version metadata is missing");
+    }
+
+    return Number(row["value"]);
+  }
+
   close(): void {
     this.db.close();
   }
@@ -388,7 +427,30 @@ export class SemanticStore {
     };
   }
 
-  private createSchema(): void {
+  private migrateSchema(): void {
+    this.db.exec("BEGIN IMMEDIATE;");
+    try {
+      this.createBaseSchema();
+      this.ensureMetadataTable();
+
+      const currentVersion = this.readSchemaVersion();
+      if (currentVersion === null) {
+        this.writeSchemaVersion(SEMANTIC_STORE_SCHEMA_VERSION);
+      } else if (currentVersion > SEMANTIC_STORE_SCHEMA_VERSION) {
+        throw new Error(
+          `Semantic store schema version ${String(currentVersion)} is newer than this build supports `
+          + `(${String(SEMANTIC_STORE_SCHEMA_VERSION)})`,
+        );
+      }
+
+      this.db.exec("COMMIT;");
+    } catch (error) {
+      this.db.exec("ROLLBACK;");
+      throw error;
+    }
+  }
+
+  private createBaseSchema(): void {
     this.db.exec(`
       CREATE TABLE IF NOT EXISTS semantic_bundles (
         bundle_id TEXT PRIMARY KEY,
@@ -454,5 +516,37 @@ export class SemanticStore {
       CREATE INDEX IF NOT EXISTS idx_semantic_spans_chunk_id
         ON semantic_spans(chunk_id);
     `);
+  }
+
+  private ensureMetadataTable(): void {
+    this.db.exec(`
+      CREATE TABLE IF NOT EXISTS semantic_store_metadata (
+        key TEXT PRIMARY KEY,
+        value TEXT NOT NULL
+      );
+    `);
+  }
+
+  private readSchemaVersion(): number | null {
+    const row = this.db.prepare(`
+      SELECT value
+      FROM semantic_store_metadata
+      WHERE key = 'schema_version'
+      LIMIT 1
+    `).get() as Record<string, unknown> | undefined;
+
+    if (!row) {
+      return null;
+    }
+
+    return Number(row["value"]);
+  }
+
+  private writeSchemaVersion(version: number): void {
+    this.db.prepare(`
+      INSERT INTO semantic_store_metadata (key, value)
+      VALUES ('schema_version', ?)
+      ON CONFLICT(key) DO UPDATE SET value = excluded.value
+    `).run(String(version));
   }
 }

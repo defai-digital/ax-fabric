@@ -110,8 +110,9 @@ export class Daemon {
     const sighupHandler = () => {
       try {
         this.config = loadConfig(this.configPath);
-      } catch {
-        // Continue with old config.
+      } catch (err) {
+        // Continue with old config; log so the operator knows the reload failed.
+        console.error(`[daemon] SIGHUP: failed to reload config, keeping current config: ${err instanceof Error ? err.message : String(err)}`);
       }
     };
     process.on("SIGHUP", sighupHandler);

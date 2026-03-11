@@ -42,7 +42,7 @@ export function htmlToMarkdown(html: string): string {
   text = text.replace(/<em\b[^>]*>([\s\S]*?)<\/em>/gi, "*$1*");
   text = text.replace(/<i\b[^>]*>([\s\S]*?)<\/i>/gi, "*$1*");
   text = text.replace(/<code\b[^>]*>([\s\S]*?)<\/code>/gi, "`$1`");
-  text = text.replace(/<a\b[^>]*href="([^"]*)"[^>]*>([\s\S]*?)<\/a>/gi, "[$2]($1)");
+  text = text.replace(/<a\b[^>]*href=["']([^"']*)["'][^>]*>([\s\S]*?)<\/a>/gi, "[$2]($1)");
 
   // Strip remaining HTML tags
   text = text.replace(/<[^>]+>/g, "");

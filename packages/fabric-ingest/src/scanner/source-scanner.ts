@@ -39,9 +39,16 @@ const EXTENSION_MAP: Record<string, ContentType> = {
   ".pptx": "pptx",
   ".xlsx": "xlsx",
   ".csv": "csv",
+  ".tsv": "tsv",
   ".json": "json",
+  ".jsonl": "jsonl",
   ".yaml": "yaml",
   ".yml": "yaml",
+  ".html": "html",
+  ".htm": "html",
+  ".rtf": "rtf",
+  ".sql": "sql",
+  ".log": "log",
 };
 
 /**
