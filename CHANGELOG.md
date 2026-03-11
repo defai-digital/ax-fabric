@@ -1,5 +1,21 @@
 # Changelog
 
+## v1.3.0
+
+Enterprise offline stack operability release.
+
+### Highlights
+
+- Added `ax-fabric doctor` for local readiness, source-path, env-var, and endpoint checks
+- Added machine-readable `--json` output for stack diagnostics and automation workflows
+- Added `OPERATIONS.md` for startup order, troubleshooting, and reproducible local-stack demos
+- Expanded stack guidance to clarify `ax-cli`, `ax-studio`, and `ax-serving` roles in the AX Fabric product family
+
+### Notes
+
+- See `OPERATIONS.md` for the recommended `v1.3` operating model
+- See `STACK.md` for product-family architecture and endpoint responsibilities
+
 ## v1.2.1
 
 Documentation and positioning update for the enterprise offline AI direction.
@@ -15,13 +31,6 @@ Documentation and positioning update for the enterprise offline AI direction.
 
 - See `STACK.md` for the recommended product-family architecture
 - See `QUICKSTART.md` for the updated first evaluation path
-
-## Unreleased
-
-### v1.3 operability work in progress
-
-- Added `ax-fabric doctor` for local readiness and endpoint checks
-- Added `OPERATIONS.md` for local-stack startup order, diagnostics, and operator guidance
 
 ## v1.2.0
 
