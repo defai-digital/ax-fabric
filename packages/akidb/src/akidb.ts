@@ -196,7 +196,9 @@ export class AkiDB {
     const nativeRecords: RecordJs[] = records.map((record) => ({
       chunkId: record.chunk_id,
       docId: record.doc_id,
-      vector: Array.from(record.vector, (value) => Number(value)),
+      // record.vector is number[] (validated by Zod); pass it directly to avoid
+      // an unnecessary Array.from copy on every upsert call.
+      vector: record.vector as number[],
       metadataJson: JSON.stringify(record.metadata, upsertJsonReplacer),
       chunkText: record.chunk_text,
     }));
@@ -293,6 +295,11 @@ export class AkiDB {
   getTombstoneCount(collectionId: string): number {
     guardCollectionId("getTombstoneCount", collectionId);
     return this.engine.getTombstoneCount(collectionId);
+  }
+
+  getSegmentCount(collectionId: string): number {
+    guardCollectionId("getSegmentCount", collectionId);
+    return this.engine.getSegmentCount(collectionId);
   }
 
   // ─── Lifecycle ─────────────────────────────────────────────────────────

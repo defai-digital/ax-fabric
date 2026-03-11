@@ -114,20 +114,34 @@ impl WritePath {
             };
             let old_recovery = WalReader::recover(&old_path);
             if !old_recovery.records.is_empty() {
+                let mut dropped = 0usize;
                 let recovered: Vec<NativeRecord> = old_recovery
                     .records
                     .into_iter()
-                    .filter_map(|record| NativeRecord::from_json_value(record).ok())
+                    .filter_map(|record| match NativeRecord::from_json_value(record) {
+                        Ok(r) => Some(r),
+                        Err(e) => { dropped += 1; eprintln!("[WARN] akidb: WAL(.old) record parse error — record dropped: {e}"); None }
+                    })
                     .collect();
+                if dropped > 0 {
+                    eprintln!("[WARN] akidb: WAL(.old) recovery dropped {dropped} unparseable record(s) — check for WAL corruption");
+                }
                 buffer.add_batch(&recovered);
             }
             let recovery = WalReader::recover(wal_path);
             if !recovery.records.is_empty() {
+                let mut dropped = 0usize;
                 let recovered: Vec<NativeRecord> = recovery
                     .records
                     .into_iter()
-                    .filter_map(|record| NativeRecord::from_json_value(record).ok())
+                    .filter_map(|record| match NativeRecord::from_json_value(record) {
+                        Ok(r) => Some(r),
+                        Err(e) => { dropped += 1; eprintln!("[WARN] akidb: WAL record parse error — record dropped: {e}"); None }
+                    })
                     .collect();
+                if dropped > 0 {
+                    eprintln!("[WARN] akidb: WAL recovery dropped {dropped} unparseable record(s) — check for WAL corruption");
+                }
                 buffer.add_batch(&recovered);
             }
             last_wal_sequence = recovery.max_sequence.max(old_recovery.max_sequence);
@@ -232,11 +246,10 @@ impl WritePath {
         let storage = &*self.storage;
 
         let mut builder = SegmentBuilder::new();
-        let mut vectors: Vec<Vec<f32>> = Vec::with_capacity(records.len());
-        let mut chunk_ids: Vec<String> = Vec::with_capacity(records.len());
 
+        // Validate dimensions and collect vectors for HNSW in one pass (one clone per vector).
+        let mut vectors: Vec<Vec<f32>> = Vec::with_capacity(records.len());
         for rec in records {
-            // Validate vector dimension matches the collection.
             if rec.vector.len() != dimension {
                 return Err(AkiDbError::DimensionMismatch {
                     expected: dimension,
@@ -244,21 +257,24 @@ impl WritePath {
                     chunk_id: rec.chunk_id.clone(),
                 });
             }
-
-            builder.add_record_with_text(
-                rec.chunk_id.clone(),
-                rec.vector.clone(),
-                rec.metadata.clone(),
-                rec.chunk_text.clone(),
-            )?;
             vectors.push(rec.vector.clone());
-            chunk_ids.push(rec.chunk_id.clone());
         }
 
-        // Build HNSW index with collection-configured parameters.
+        // Build HNSW index before consuming vectors into the builder.
         let mut graph = HnswGraph::new(metric, dimension, hnsw.m, hnsw.ef_construction, hnsw.ef_search);
         graph.build(&vectors);
         let index_data = graph.serialize();
+
+        // Feed the segment builder by moving vectors from the pre-collected Vec,
+        // eliminating the second clone per record that was present in the original loop.
+        for (rec, vector) in records.iter().zip(vectors.into_iter()) {
+            builder.add_record_with_text(
+                rec.chunk_id.clone(),
+                vector, // moved — no extra clone
+                rec.metadata.clone(),
+                rec.chunk_text.clone(),
+            )?;
+        }
 
         // Build final segment buffer with embedded index.
         let result = builder.build(Some(&index_data))?;

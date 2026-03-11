@@ -272,7 +272,7 @@ export class Pipeline {
       durationMs: metrics.durationMs,
       stageDurations: {
         scanMs: metrics.scanDurationMs,
-        processDurationMs: metrics.processDurationMs,
+        processMs: metrics.processDurationMs,
         publishMs: metrics.publishDurationMs,
       },
       embedStats: metrics.embedStats,

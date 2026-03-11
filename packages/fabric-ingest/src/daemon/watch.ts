@@ -28,6 +28,8 @@ import type { BudgetResult } from "./budget.js";
 import type { LifecycleResult } from "./lifecycle.js";
 import { Pipeline } from "../pipeline/pipeline.js";
 import type { PipelineMetrics } from "../pipeline/pipeline.js";
+import { SmartCompactionPolicy } from "./compaction-policy.js";
+import type { CompactionDecision } from "./compaction-policy.js";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -51,6 +53,7 @@ export interface CycleResult {
   modifications: LifecycleResult;
   pipeline: PipelineMetrics | null;
   compacted: boolean;
+  compactionDecision: CompactionDecision;
   skipped: boolean;
 }
 
@@ -73,6 +76,8 @@ export class Daemon {
   private readonly onCycleError?: (err: unknown) => void;
   private running = false;
   private cycleCount = 0;
+  private cyclesSinceLastCompact = 0;
+  private readonly compactionPolicy: SmartCompactionPolicy;
 
   constructor(opts: WatchOptions) {
     this.configPath = opts.configPath;
@@ -83,6 +88,7 @@ export class Daemon {
     this.onCycleStart = opts.onCycleStart;
     this.onCycleEnd = opts.onCycleEnd;
     this.onCycleError = opts.onCycleError;
+    this.compactionPolicy = new SmartCompactionPolicy();
   }
 
   /**
@@ -127,6 +133,9 @@ export class Daemon {
         } catch (err) {
           console.error(`[daemon] cycle error: ${err instanceof Error ? err.message : String(err)}`);
           this.onCycleError?.(err);
+          // Increment the compaction cycle counter even on errors so the
+          // cycle-limit trigger in SmartCompactionPolicy still fires.
+          this.cyclesSinceLastCompact++;
         }
         this.cycleCount++;
 
@@ -154,21 +163,23 @@ export class Daemon {
    */
   async runCycle(): Promise<CycleResult> {
     const maxStorageGb = this.config.fabric.max_storage_gb;
-    const compactThreshold = this.config.lifecycle?.compact_threshold ?? 50;
 
     // 1. Check storage budget.
     const usedBytes = this.akidb.getStorageSizeBytes();
     const budget = checkBudget(usedBytes, maxStorageGb);
 
     if (budget.action === "skip") {
-      // Over budget — only compact, skip ingestion.
+      // Over budget — compact immediately and skip ingestion.
       await this.akidb.compact(this.collectionId);
+      this.cyclesSinceLastCompact = 0;
+      const decision: CompactionDecision = { shouldCompact: true, reason: "budget_pressure" };
       return {
         budget,
         deletions: { tombstoned: 0, deletedFiles: [], modifiedFiles: [] },
         modifications: { tombstoned: 0, deletedFiles: [], modifiedFiles: [] },
         pipeline: null,
         compacted: true,
+        compactionDecision: decision,
         skipped: true,
       };
     }
@@ -205,12 +216,23 @@ export class Daemon {
       pipeline.close();
     }
 
-    // 3. Check if compaction is needed.
-    let compacted = false;
+    // 3. Evaluate compaction using SmartCompactionPolicy.
     const tombstoneCount = this.akidb.getTombstoneCount(this.collectionId);
-    if (tombstoneCount >= compactThreshold || budget.action === "compact") {
+    const filesScanned = pipelineMetrics?.filesScanned ?? 0;
+    const decision = this.compactionPolicy.evaluate({
+      tombstoneCount,
+      filesScanned,
+      budgetPressure: budget.action === "compact",
+      cyclesSinceLastCompact: this.cyclesSinceLastCompact,
+    });
+
+    let compacted = false;
+    if (decision.shouldCompact) {
       await this.akidb.compact(this.collectionId);
       compacted = true;
+      this.cyclesSinceLastCompact = 0;
+    } else {
+      this.cyclesSinceLastCompact++;
     }
 
     return {
@@ -219,6 +241,7 @@ export class Daemon {
       modifications: emptyLifecycle,
       pipeline: pipelineMetrics,
       compacted,
+      compactionDecision: decision,
       skipped: false,
     };
   }

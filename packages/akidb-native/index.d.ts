@@ -144,5 +144,6 @@ export declare class AkiDbEngine {
   rollback(collectionId: string, manifestId: string): ManifestJs
   getStorageSizeBytes(): number
   getTombstoneCount(collectionId: string): number
+  getSegmentCount(collectionId: string): number
   close(): void
 }

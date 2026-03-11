@@ -30,7 +30,7 @@ export interface EmbedStats {
 
 export interface StageDurations {
   scanMs: number;
-  processDurationMs: number;
+  processMs: number;
   publishMs: number;
 }
 

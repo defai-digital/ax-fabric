@@ -71,7 +71,7 @@ export class MetricsObserver implements PipelineObserver {
         }
         if (event.stageDurations) {
           this.counters.totalScanMs += event.stageDurations.scanMs;
-          this.counters.totalProcessMs += event.stageDurations.processDurationMs;
+          this.counters.totalProcessMs += event.stageDurations.processMs;
           this.counters.totalPublishMs += event.stageDurations.publishMs;
         }
         if (event.embedStats) {

@@ -110,9 +110,21 @@ pub fn compact(
         },
     )?;
 
-    // Archive old segments.
+    // Archive old segments and delete their physical files.
+    // Archiving without deletion leaves orphaned .bin files on disk that
+    // continue to count toward the storage budget (get_storage_size_bytes
+    // walks the filesystem), so space_reclaimed_bytes would be a lie.
     for seg_id in old_segment_ids {
+        // Collect storage path before updating status (get_segment uses status).
+        let storage_path = metadata
+            .get_segment(seg_id)
+            .ok()
+            .flatten()
+            .map(|s| s.storage_path);
         let _ = metadata.update_segment_status(seg_id, "archived");
+        if let Some(path) = storage_path {
+            let _ = storage.delete_object(&path);
+        }
     }
 
     // Clean up tombstones.
@@ -174,11 +186,11 @@ fn build_compacted_segment(
     metric: &str,
     hnsw: HnswParams,
 ) -> Result<(String, i64)> {
-    let mut builder = SegmentBuilder::new();
+    // Collect vectors first (one clone each) so they can be moved into the
+    // builder after HNSW construction — avoiding the double-clone per record
+    // that occurs when both the builder and the HNSW graph need ownership.
     let mut vectors: Vec<Vec<f32>> = Vec::with_capacity(records.len());
-
     for rec in records {
-        builder.add_record_with_text(rec.chunk_id.clone(), rec.vector.clone(), rec.metadata.clone(), rec.chunk_text.clone())?;
         vectors.push(rec.vector.clone());
     }
 
@@ -186,6 +198,12 @@ fn build_compacted_segment(
     let mut graph = HnswGraph::new(metric, dimension, hnsw.m, hnsw.ef_construction, hnsw.ef_search);
     graph.build(&vectors);
     let index_data = graph.serialize();
+
+    // Feed builder by moving vectors — no additional clone per record.
+    let mut builder = SegmentBuilder::new();
+    for (rec, vector) in records.iter().zip(vectors.into_iter()) {
+        builder.add_record_with_text(rec.chunk_id.clone(), vector, rec.metadata.clone(), rec.chunk_text.clone())?;
+    }
 
     let result = builder.build(Some(&index_data))?;
 

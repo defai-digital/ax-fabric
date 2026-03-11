@@ -659,10 +659,25 @@ impl QueryEngine {
             (*top_k, *hnsw, *manifest_version, *tombstone_fingerprint);
         let cache_key = IndexCache::cache_key(segment_id, manifest_version, tombstone_fingerprint);
 
+        // Fast path: unfiltered cache hit — no disk I/O required.
+        // The previous code only checked the cache inside `if let Some(f) = filters`,
+        // so every unfiltered query bypassed the cache and re-read the segment from disk.
+        if filters.is_none() {
+            let cached_arc: Option<Arc<CachedIndex>> = {
+                let mut cache = self.index_cache.lock().unwrap_or_else(|e| e.into_inner());
+                cache.get(&cache_key)
+            };
+            if let Some(cached) = cached_arc {
+                let results = cached.graph.search(query_vector, top_k);
+                return Ok(convert_search_results(&results, &cached.active_chunk_ids));
+            }
+        }
+
+        // Cache miss (or filtered query) — must read the segment from disk.
         let buffer = storage.get_object(storage_path)?;
         let reader = SegmentReader::from_buffer(buffer)?;
-        // Cache hit path for filtered queries still needs metadata to evaluate predicates,
-        // but avoids vector decode and graph (de)serialization.
+
+        // Filtered cache hit: graph is cached, only need metadata for predicate evaluation.
         if let Some(f) = filters {
             let cached_arc: Option<Arc<CachedIndex>> = {
                 let mut cache = self.index_cache.lock().unwrap_or_else(|e| e.into_inner());

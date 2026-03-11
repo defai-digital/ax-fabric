@@ -226,6 +226,20 @@ describe("EmbeddingScheduler — error handling", () => {
     expect(metrics.errorsEncountered).toBe(1);
   });
 
+  it("rejects when embedder returns fewer vectors than requested", async () => {
+    // Embedder returns only 1 vector for 2 inputs — scheduler must detect this.
+    const embedder = makeEmbedder(async () => [[1, 0, 0, 0]]); // always returns 1
+    const scheduler = makeScheduler(embedder, { batchSize: 2 });
+
+    const promise = scheduler.embed(["a", "b"]);
+    const check = expect(promise).rejects.toThrow("Embedder returned 1 vectors for 2 inputs");
+    await vi.runAllTimersAsync();
+    await check;
+
+    // Should be counted as an error
+    expect(scheduler.getMetrics().errorsEncountered).toBe(1);
+  });
+
   it("rejects all tickets in a failed batch (split-ticket safety)", async () => {
     // File with 5 chunks, batchSize=3 → split across 2 batches.
     // Second batch fails. First batch succeeds but ticket should reject overall.

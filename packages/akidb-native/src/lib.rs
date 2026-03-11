@@ -388,6 +388,13 @@ impl AkiDbEngine {
             .map_err(napi::Error::from)
     }
 
+    #[napi]
+    pub fn get_segment_count(&self, collection_id: String) -> Result<i64> {
+        self.inner
+            .get_segment_count(&collection_id)
+            .map_err(napi::Error::from)
+    }
+
     // ─── Close ──────────────────────────────────────────────────────────────
 
     #[napi]

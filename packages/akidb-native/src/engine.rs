@@ -573,6 +573,12 @@ impl EngineInner {
         metadata.get_tombstone_count(collection_id)
     }
 
+    pub fn get_segment_count(&self, collection_id: &str) -> Result<i64> {
+        let metadata = self.lock_metadata()?;
+        let segments = metadata.list_segments(collection_id, Some("ready"))?;
+        Ok(segments.len() as i64)
+    }
+
     // ─── Close ──────────────────────────────────────────────────────────────
 
     pub fn close(&self) -> Result<()> {

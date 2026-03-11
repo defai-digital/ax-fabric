@@ -9,3 +9,6 @@ export type { LifecycleResult } from "./lifecycle.js";
 
 export { Daemon } from "./watch.js";
 export type { WatchOptions, CycleResult, WatchResult } from "./watch.js";
+
+export { SmartCompactionPolicy } from "./compaction-policy.js";
+export type { CompactionPolicyOptions, CompactionInput, CompactionDecision } from "./compaction-policy.js";

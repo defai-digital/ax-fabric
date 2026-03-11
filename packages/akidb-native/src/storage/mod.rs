@@ -72,6 +72,21 @@ impl LocalFsBackend {
         Ok(())
     }
 
+    /// Delete the blob stored under `key`. No-ops silently if the object does not exist.
+    /// Also removes the SHA-256 sidecar file if present.
+    pub fn delete_object(&self, key: &str) -> Result<()> {
+        let abs_path = self.key_to_path(key)?;
+        if abs_path.exists() {
+            fs::remove_file(&abs_path)?;
+        }
+        // Best-effort: remove sidecar even if the main file was already gone.
+        let sidecar = PathBuf::from(format!("{}.sha256", abs_path.display()));
+        if sidecar.exists() {
+            let _ = fs::remove_file(sidecar);
+        }
+        Ok(())
+    }
+
     /// Retrieve the blob stored under `key`.
     pub fn get_object(&self, key: &str) -> Result<Vec<u8>> {
         let abs_path = self.key_to_path(key)?;

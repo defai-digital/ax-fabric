@@ -103,9 +103,11 @@ export function registerIngestRunCommand(ingest: Command): void {
 
         console.log();
       } finally {
-        pipeline.close();
-        db.close();
-        await embedder.close?.();
+        // Run all cleanup steps independently so a failure in one does not
+        // prevent the others from executing.
+        try { pipeline.close(); } catch { /* ignore */ }
+        try { db.close(); } catch { /* ignore */ }
+        try { await embedder.close?.(); } catch { /* ignore */ }
       }
     });
 }
@@ -113,8 +115,13 @@ export function registerIngestRunCommand(ingest: Command): void {
 function ensureCollection(db: AkiDB, config: { akidb: { collection: string; metric: string; dimension: number }; embedder: { model_id: string } }): void {
   try {
     db.getCollection(config.akidb.collection);
-  } catch {
-    // Collection doesn't exist — create it
+  } catch (err) {
+    // Only create the collection when it genuinely doesn't exist.
+    // Re-throw any other error (e.g. database corruption, lock error) so the
+    // caller sees the real failure rather than a confusing "create" error.
+    if (!(err instanceof Error && err.message.includes("not found"))) {
+      throw err;
+    }
     db.createCollection({
       collectionId: config.akidb.collection,
       dimension: config.akidb.dimension,

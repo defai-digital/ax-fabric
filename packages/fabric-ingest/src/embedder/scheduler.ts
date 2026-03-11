@@ -263,6 +263,15 @@ export class EmbeddingScheduler implements EmbedderProvider {
     try {
       const vectors = await this.embedder.embed(items.map((i) => i.text));
       this.totalRequestMs += Date.now() - requestStart;
+
+      // Guard: a misbehaving embedder returning fewer vectors than requested
+      // would silently corrupt tickets with undefined values. Reject the batch.
+      if (vectors.length !== items.length) {
+        throw new AxFabricError(
+          "EMBED_ERROR",
+          `Embedder returned ${String(vectors.length)} vectors for ${String(items.length)} inputs`,
+        );
+      }
       this.vectorsEmbedded += vectors.length;
 
       for (let i = 0; i < items.length; i++) {
