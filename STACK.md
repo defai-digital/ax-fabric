@@ -79,6 +79,14 @@ Use `ax-cli` when you want:
 - local-stack bootstrap and validation,
 - automation-oriented administration.
 
+`ax-cli` should be understood as an endpoint into AX Fabric, not as a replacement for it.
+
+For `v1.3`, the intended relationship is:
+
+- `ax-cli` drives setup, ingestion, diagnostics, and scripted workflows,
+- AX Fabric remains the underlying knowledge and context system,
+- any project memory or warmup flows in `ax-cli` should either use AX Fabric directly or clearly describe when they do not.
+
 ### ax-studio
 
 Use `ax-studio` when you want:
@@ -86,6 +94,14 @@ Use `ax-studio` when you want:
 - a visual workspace for local AI workflows,
 - interactive retrieval and knowledge access,
 - managed UI flows for enterprise users and operators.
+
+For `v1.3`, `ax-studio` should be treated as a visual client around AX Fabric rather than a separate knowledge backend.
+
+The intended backend relationship is:
+
+- AX Fabric owns document ingestion, indexing, retrieval, and MCP-facing knowledge access,
+- `ax-studio` consumes that capability through the documented local stack,
+- `ax-serving` is used only when model execution or local embedding infrastructure is required.
 
 ### ax-serving
 
@@ -138,3 +154,12 @@ Later phases will expand deeper into:
 - retrieval quality and explainability,
 - memory and context services,
 - enterprise governance and observability.
+
+## v1.3 Completion Criteria
+
+The `v1.3` phase is complete when:
+
+- the local stack has a documented startup order,
+- `ax-cli` and `ax-studio` integration roles are explicit,
+- operators have a first-line health and diagnostics command,
+- and evaluators can follow a reproducible local-stack path without reading source code.

@@ -339,6 +339,46 @@ describe("CLI commands", () => {
       expect(output).toContain("[ok] endpoint:embedder:");
       expect(output).toContain("reachable");
     });
+
+    it("prints JSON output for automation workflows", async () => {
+      mockConfig = {
+        ...mockConfig,
+        ingest: {
+          ...mockConfig["ingest"] as Record<string, unknown>,
+          sources: [{ path: sourceDir }],
+        },
+        embedder: {
+          type: "http",
+          model_id: "text-embedding-3-small",
+          dimension: 128,
+          batch_size: 64,
+          base_url: "http://127.0.0.1:18080/v1/embeddings",
+          api_key_env: "EMBEDDING_API_KEY",
+        },
+      };
+      process.env["EMBEDDING_API_KEY"] = "test-token";
+
+      const program = new Command();
+      program.exitOverride();
+      registerDoctorCommand(program);
+
+      const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+
+      try {
+        await program.parseAsync(["node", "test", "doctor", "--config", configPath, "--json"]);
+      } catch {
+        // Commander may throw on exitOverride
+      } finally {
+        delete process.env["EMBEDDING_API_KEY"];
+      }
+
+      const output = logSpy.mock.calls.map((call) => String(call[0] ?? "")).join("\n");
+      logSpy.mockRestore();
+
+      expect(output).toContain("\"configPath\"");
+      expect(output).toContain("\"label\": \"env:EMBEDDING_API_KEY\"");
+      expect(output).toContain("\"label\": \"source:");
+    });
   });
 
   // ─── ingest diff ─────────────────────────────────────────────────────────

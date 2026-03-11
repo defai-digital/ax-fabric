@@ -20,6 +20,11 @@ interface CheckResult {
   detail: string;
 }
 
+interface DoctorReport {
+  configPath: string;
+  checks: CheckResult[];
+}
+
 function emit(result: CheckResult): void {
   const tag = result.level === "ok"
     ? "ok"
@@ -79,116 +84,169 @@ async function checkReachable(url: string, timeoutMs: number): Promise<boolean> 
   }
 }
 
+function push(report: DoctorReport, result: CheckResult, json: boolean): void {
+  report.checks.push(result);
+  if (!json) {
+    emit(result);
+  }
+}
+
 export function registerDoctorCommand(program: Command): void {
   program
     .command("doctor")
     .description("Check local AX Fabric stack readiness and common failure points")
     .option("-c, --config <path>", "Path to config.yaml (default: ~/.ax-fabric/config.yaml)")
     .option("--check-serving", "Probe configured local HTTP endpoints such as ax-serving and the orchestrator")
+    .option("--json", "Print machine-readable JSON output")
     .option("--timeout-ms <ms>", "Timeout for HTTP endpoint probes", "1500")
-    .action(async (opts: { config?: string; checkServing?: boolean; timeoutMs: string }) => {
+    .action(async (opts: { config?: string; checkServing?: boolean; json?: boolean; timeoutMs: string }) => {
       const configPath = opts.config ?? resolveConfigPath();
+      const report: DoctorReport = { configPath, checks: [] };
 
       if (!existsSync(configPath)) {
-        emit({
+        push(report, {
           level: "fail",
           label: "config",
           detail: `missing config file at ${configPath}`,
-        });
+        }, Boolean(opts.json));
+        if (opts.json) {
+          console.log(JSON.stringify(report, null, 2));
+        }
         process.exitCode = 1;
         return;
       }
 
-      emit({
+      push(report, {
         level: "ok",
         label: "config",
         detail: configPath,
-      });
+      }, Boolean(opts.json));
 
       let config: FabricConfig;
       try {
         config = loadConfig(configPath);
       } catch (error) {
-        emit({
+        push(report, {
           level: "fail",
           label: "config-parse",
           detail: error instanceof Error ? error.message : String(error),
-        });
+        }, Boolean(opts.json));
+        if (opts.json) {
+          console.log(JSON.stringify(report, null, 2));
+        }
         process.exitCode = 1;
         return;
       }
 
       const dataRoot = resolveDataRoot(config);
-      emit({
+      push(report, {
         level: existsSync(dataRoot) ? "ok" : "warn",
         label: "data-root",
         detail: existsSync(dataRoot) ? dataRoot : `${dataRoot} (missing; run 'ax-fabric init' or ingest once)`,
-      });
+      }, Boolean(opts.json));
 
       const akidbRoot = config.akidb.root.replace(/^~/, homedir());
-      emit({
+      push(report, {
         level: existsSync(akidbRoot) ? "ok" : "warn",
         label: "akidb-root",
         detail: existsSync(akidbRoot) ? akidbRoot : `${akidbRoot} (missing collection storage)`,
-      });
+      }, Boolean(opts.json));
 
-      emit({
+      push(report, {
         level: config.ingest.sources.length > 0 ? "ok" : "warn",
         label: "sources",
         detail: config.ingest.sources.length > 0
           ? `${String(config.ingest.sources.length)} source(s) configured`
           : "no sources configured; run 'ax-fabric ingest add <path>'",
-      });
+      }, Boolean(opts.json));
+
+      for (const source of config.ingest.sources) {
+        push(report, {
+          level: existsSync(source.path) ? "ok" : "warn",
+          label: `source:${source.path}`,
+          detail: existsSync(source.path) ? "path exists" : "path missing or unavailable",
+        }, Boolean(opts.json));
+      }
+
+      if (config.embedder.api_key_env) {
+        push(report, {
+          level: process.env[config.embedder.api_key_env] ? "ok" : "warn",
+          label: `env:${config.embedder.api_key_env}`,
+          detail: process.env[config.embedder.api_key_env]
+            ? "present"
+            : "missing; embedder may fail authentication",
+        }, Boolean(opts.json));
+      }
+
+      if (config.llm?.auth.token_env) {
+        push(report, {
+          level: process.env[config.llm.auth.token_env] ? "ok" : "warn",
+          label: `env:${config.llm.auth.token_env}`,
+          detail: process.env[config.llm.auth.token_env]
+            ? "present"
+            : "missing; grounded answer generation may fail authentication",
+        }, Boolean(opts.json));
+      }
 
       const token = readToken();
-      emit({
+      push(report, {
         level: token ? "ok" : "warn",
         label: "mcp-token",
         detail: token ? "present" : "missing; run 'ax-fabric mcp token ensure'",
-      });
+      }, Boolean(opts.json));
 
       const daemonStatus = readDaemonStatus();
       if (!daemonStatus) {
-        emit({
+        push(report, {
           level: "warn",
           label: "daemon-status",
           detail: "no daemon status file; run 'ax-fabric daemon' if continuous sync is required",
-        });
+        }, Boolean(opts.json));
       } else {
-        emit({
+        push(report, {
           level: daemonStatus.status === "error" ? "warn" : "ok",
           label: "daemon-status",
           detail: `${daemonStatus.status ?? "unknown"}`
             + (daemonStatus.data_folder ? ` (data folder: ${daemonStatus.data_folder})` : ""),
-        });
+        }, Boolean(opts.json));
       }
 
       if (!opts.checkServing) {
+        if (opts.json) {
+          console.log(JSON.stringify(report, null, 2));
+        }
         return;
       }
 
       const timeoutMs = Number.parseInt(opts.timeoutMs, 10);
       const urls = collectServingUrls(config);
       if (urls.length === 0) {
-        emit({
+        push(report, {
           level: "warn",
           label: "serving-check",
           detail: "no HTTP endpoints configured in embedder, llm, or orchestrator sections",
-        });
+        }, Boolean(opts.json));
+        if (opts.json) {
+          console.log(JSON.stringify(report, null, 2));
+        }
         return;
       }
 
       let hasFailure = false;
       for (const entry of urls) {
         const reachable = await checkReachable(entry.url, Number.isFinite(timeoutMs) ? timeoutMs : 1500);
-        emit({
+        push(report, {
           level: reachable ? "ok" : "fail",
           label: `endpoint:${entry.label}`,
           detail: reachable ? `${entry.url} reachable` : `${entry.url} unreachable`,
-        });
+        }, Boolean(opts.json));
         if (!reachable) {
           hasFailure = true;
         }
+      }
+
+      if (opts.json) {
+        console.log(JSON.stringify(report, null, 2));
       }
 
       if (hasFailure) {

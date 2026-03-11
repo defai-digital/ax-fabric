@@ -95,6 +95,36 @@ Worker orchestrator:
 pnpm exec ax-fabric orchestrator start
 ```
 
+## AX Studio Backend Integration
+
+For `v1.3`, the recommended relationship is:
+
+- `ax-studio` is the visual workspace,
+- AX Fabric is the knowledge and retrieval backend,
+- `ax-serving` is the optional model-serving backend.
+
+When describing or operating the local stack, use this split:
+
+- `ax-studio` handles UI and user interaction,
+- AX Fabric handles ingestion, indexing, retrieval, MCP access, and context delivery,
+- `ax-serving` handles local model execution or embedding endpoints when needed.
+
+If `ax-studio` expects multiple local ports or backend services, AX Fabric should be identified explicitly as the retrieval and knowledge service in that topology.
+
+## AX CLI Memory and Context Relationship
+
+For `v1.3`, `ax-cli` should be treated as an operator and developer endpoint around AX Fabric.
+
+That means:
+
+- AX Fabric remains the durable knowledge and retrieval layer,
+- `ax-cli` drives workflows such as setup, ingestion, search, and diagnostics,
+- if `ax-cli` has project-memory or warmup concepts, they should be documented as either:
+  - using AX Fabric as the backing knowledge/context layer, or
+  - being separate transient workflow state that does not replace AX Fabric.
+
+The important rule is to avoid ambiguous overlap. Operators should be able to tell whether a given memory or context function is durable AX Fabric knowledge, transient CLI workflow state, or model runtime state.
+
 ## What `ax-fabric doctor` Checks
 
 `ax-fabric doctor` is the first-line local operability check.
@@ -125,6 +155,24 @@ Before handing the stack to end users, confirm:
 - search returns expected results,
 - any local serving backend is reachable,
 - MCP token exists if AI tools will connect over MCP.
+
+## Reproducible Local Demo Path
+
+The `v1.3` local-stack demo should be reproducible with these steps:
+
+1. initialize AX Fabric,
+2. configure a local embedding backend,
+3. add and ingest a document directory,
+4. run `ax-fabric doctor`,
+5. query through CLI or MCP,
+6. optionally connect `ax-studio` as the visual client.
+
+The demo is successful when:
+
+- documents are indexed,
+- local health checks pass or produce actionable warnings,
+- grounded search results are visible,
+- the operator understands which layer owns UI, knowledge, and model execution.
 
 ## Common Failure Modes
 
@@ -186,7 +234,9 @@ Included in this phase:
 - startup order,
 - endpoint relationships,
 - local health diagnostics,
-- reproducible evaluation flow.
+- reproducible evaluation flow,
+- `ax-studio` backend guidance,
+- `ax-cli` memory and context guidance.
 
 Not yet fully solved in this phase:
 
