@@ -1,5 +1,25 @@
 # Changelog
 
+## v1.6.0
+
+Core `SemanticDistill Engine` release.
+
+### Highlights
+
+- Added first-class semantic unit contracts with grounded provenance, source spans, quality scores, and duplicate-group metadata
+- Added a deterministic semantic distillation engine that derives semantic units from extracted source text without changing the existing ingest pipeline
+- Added `ax-fabric semantic preview <file>` for operator-facing semantic unit inspection
+- Added `ax-fabric semantic export <file> --output <path>` for JSON export of semantic units and provenance
+- Added markdown extractor registration to the default registry so semantic workflows support `.md` and `.markdown` files out of the box
+- Fixed TypeScript pipeline metric typing so workspace typecheck remains clean with the `v1.5.5` ingest quality metrics
+- Added regression coverage for semantic contracts, semantic distillation, semantic CLI flows, markdown extractor registration, and updated config fixtures
+
+### Notes
+
+- `v1.6.0` introduces the semantic artifact engine as an additive layer; raw chunk ingest and retrieval remain intact
+- semantic units are previewable and exportable in this release, but are not yet indexed into retrieval by default
+- review, governance, and UI workflows remain the `v1.7.0` scope
+
 ## v1.5.5
 
 Patch release for `v1.5` retrieval and ingest quality hardening.

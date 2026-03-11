@@ -165,7 +165,7 @@ describe("CLI commands", () => {
       ingest: {
         sources: [] as Array<{ path: string }>,
         scan: { mode: "incremental", fingerprint: "sha256" },
-        chunking: { chunk_size: 512, overlap: 0.15 },
+        chunking: { chunk_size: 512, overlap: 0.15, strategy: "auto" },
       },
       embedder: {
         type: "local",

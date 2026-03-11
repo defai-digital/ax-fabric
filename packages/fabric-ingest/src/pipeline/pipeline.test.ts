@@ -82,7 +82,7 @@ describe("Pipeline", () => {
     expect(metrics.totalChunksGenerated).toBe(metrics.recordsGenerated);
     expect(metrics.averageChunkSizeChars).toBeGreaterThan(0);
     expect(metrics.chunkCountBySource[join(sourceDir, "hello.txt")]).toBeGreaterThan(0);
-    expect(Object.values(metrics.labelDistribution).reduce((sum, count) => sum + count, 0)).toBe(
+    expect(Object.values(metrics.labelDistribution).reduce((sum: number, count: number) => sum + count, 0)).toBe(
       metrics.totalChunksGenerated,
     );
   });

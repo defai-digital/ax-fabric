@@ -329,7 +329,7 @@ describe("writeConfig", () => {
       ingest: {
         sources: [{ path: "/docs/a" }, { path: "/docs/b" }],
         scan: { mode: "incremental", fingerprint: "sha256" },
-        chunking: { chunk_size: 1000, overlap: 0.1 },
+        chunking: { chunk_size: 1000, overlap: 0.1, strategy: "auto" },
       },
       embedder: {
         type: "http",

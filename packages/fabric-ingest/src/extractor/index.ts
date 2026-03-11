@@ -11,6 +11,7 @@ export { PptxExtractor } from "./pptx-extractor.js";
 export { XlsxExtractor } from "./xlsx-extractor.js";
 export { CsvExtractor } from "./csv-extractor.js";
 export { JsonExtractor } from "./json-extractor.js";
+export { MdExtractor } from "./md-extractor.js";
 export { YamlExtractor } from "./yaml-extractor.js";
 
 export {

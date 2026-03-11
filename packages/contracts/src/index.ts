@@ -8,6 +8,15 @@ export {
 } from "./record.js";
 
 export {
+  SemanticDistillStrategySchema,
+  SemanticSourceSpanSchema,
+  SemanticUnitSchema,
+  type SemanticDistillStrategy,
+  type SemanticSourceSpan,
+  type SemanticUnit,
+} from "./semantic-unit.js";
+
+export {
   TombstoneSchema,
   TombstoneReasonSchema,
   type Tombstone,

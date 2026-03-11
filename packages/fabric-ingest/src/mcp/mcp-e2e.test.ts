@@ -31,7 +31,7 @@ function createConfig(tmpDir: string): FabricConfig {
     ingest: {
       sources: [{ path: join(tmpDir, "docs") }],
       scan: { mode: "incremental", fingerprint: "sha256" },
-      chunking: { chunk_size: 2800, overlap: 0.15 },
+      chunking: { chunk_size: 2800, overlap: 0.15, strategy: "auto" },
     },
     embedder: { type: "local", model_id: "test-embed", dimension: 128, batch_size: 64 },
   };
@@ -53,7 +53,7 @@ async function setupE2e(embedderOverride?: EmbedderProvider) {
 
   // Create MCP server
   const server = new McpServer(
-    { name: "ax-fabric-e2e", version: "0.1.0" },
+    { name: "ax-fabric-e2e", version: "1.6.0" },
     { capabilities: { tools: {}, resources: {} } },
   );
 
@@ -65,7 +65,7 @@ async function setupE2e(embedderOverride?: EmbedderProvider) {
   const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
 
   // Create client
-  const client = new Client({ name: "e2e-test-client", version: "0.1.0" });
+  const client = new Client({ name: "e2e-test-client", version: "1.6.0" });
 
   // Connect both sides
   await server.connect(serverTransport);

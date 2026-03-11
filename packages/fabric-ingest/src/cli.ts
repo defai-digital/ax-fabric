@@ -18,13 +18,14 @@ import { registerOrchestratorCommand } from "./cli/orchestrator.js";
 import { registerDaemonCommand } from "./cli/daemon.js";
 import { registerDoctorCommand } from "./cli/doctor.js";
 import { registerMemoryCommand } from "./cli/memory.js";
+import { registerSemanticCommand } from "./cli/semantic.js";
 
 const program = new Command();
 
 program
   .name("ax-fabric")
   .description("AX-Fabric document ingestion and search pipeline")
-  .version("0.1.0");
+  .version("1.6.0");
 
 registerInitCommand(program);
 
@@ -44,5 +45,6 @@ registerOrchestratorCommand(program);
 registerDaemonCommand(program);
 registerDoctorCommand(program);
 registerMemoryCommand(program);
+registerSemanticCommand(program);
 
 program.parse();

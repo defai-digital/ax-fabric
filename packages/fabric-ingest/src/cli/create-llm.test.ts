@@ -24,7 +24,7 @@ function baseConfig(): FabricConfig {
     ingest: {
       sources: [],
       scan: { mode: "incremental", fingerprint: "sha256" },
-      chunking: { chunk_size: 512, overlap: 0.15 },
+      chunking: { chunk_size: 512, overlap: 0.15, strategy: "auto" },
     },
     embedder: { type: "local", model_id: "mock", dimension: 128, batch_size: 64 },
   } as FabricConfig;

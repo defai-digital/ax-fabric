@@ -10,6 +10,7 @@ import { describe, expect, it } from "vitest";
 import {
   RecordSchema,
   RecordMetadataSchema,
+  SemanticUnitSchema,
   MetadataFilterSchema,
   ErrorCodeSchema,
   AxFabricError,
@@ -150,6 +151,59 @@ describe("RecordSchema", () => {
   it("rejects missing required string fields", () => {
     const { chunk_hash: _, ...withoutHash } = valid;
     expect(() => RecordSchema.parse(withoutHash)).toThrow();
+  });
+});
+
+describe("SemanticUnitSchema", () => {
+  const valid = {
+    unit_id: "unit-1",
+    doc_id: "doc-1",
+    doc_version: "version-1",
+    title: "Distillation overview",
+    question: "What is the key point about distillation overview?",
+    summary: "This section explains how semantic distillation produces grounded units.",
+    answer: "Semantic distillation produces grounded units derived directly from source text.",
+    keywords: ["semantic", "distillation", "grounded"],
+    entities: ["AX Fabric"],
+    quality_score: 0.82,
+    distill_strategy: "extractive-v1",
+    source_spans: [
+      {
+        source_uri: "/tmp/example.md",
+        content_type: "txt",
+        page_range: null,
+        table_ref: null,
+        offset_start: 0,
+        offset_end: 128,
+        chunk_id: "chunk-1",
+        chunk_hash: "hash-1",
+        chunk_label: "paragraph",
+      },
+    ],
+  };
+
+  it("accepts a valid semantic unit", () => {
+    const result = SemanticUnitSchema.parse(valid);
+    expect(result.title).toBe("Distillation overview");
+    expect(result.source_spans[0]!.offset_end).toBe(128);
+  });
+
+  it("accepts duplicate grouping metadata when present", () => {
+    const result = SemanticUnitSchema.parse({
+      ...valid,
+      duplicate_group_id: "dup-1",
+      duplicate_group_size: 2,
+    });
+    expect(result.duplicate_group_id).toBe("dup-1");
+    expect(result.duplicate_group_size).toBe(2);
+  });
+
+  it("rejects quality scores outside 0-1", () => {
+    expect(() => SemanticUnitSchema.parse({ ...valid, quality_score: 1.5 })).toThrow();
+  });
+
+  it("rejects empty source span arrays", () => {
+    expect(() => SemanticUnitSchema.parse({ ...valid, source_spans: [] })).toThrow();
   });
 });
 

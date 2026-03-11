@@ -422,6 +422,8 @@ describe("ExtractorRegistry", () => {
       ".csv",
       ".docx",
       ".json",
+      ".markdown",
+      ".md",
       ".pdf",
       ".pptx",
       ".txt",

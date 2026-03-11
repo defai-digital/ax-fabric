@@ -76,6 +76,13 @@ export {
   type Extractor,
 } from "./extractor/index.js";
 
+// ─── Layer 2.2b: Semantic Distillation ─────────────────────────────────────
+export {
+  SemanticDistiller,
+  type SemanticDistillOptions,
+  type SemanticDistillResult,
+} from "./semantic/index.js";
+
 // ─── Layer 3.0: MCP Server ─────────────────────────────────────────────────
 export {
   createMcpServer,

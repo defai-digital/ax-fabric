@@ -57,7 +57,7 @@ export function createMcpServer(options?: McpServerOptions): {
   // Create MCP server
   const server = new McpServer({
     name: "ax-fabric",
-    version: "0.1.0",
+    version: "1.6.0",
   }, {
     capabilities: {
       tools: {},

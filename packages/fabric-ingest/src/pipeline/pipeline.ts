@@ -5,7 +5,7 @@
  * With Job Registry for idempotent re-runs and per-file error isolation.
  */
 
-import type { EmbedderProvider, Record, Tombstone } from "@ax-fabric/contracts";
+import type { EmbedderProvider, Record as FabricRecord, Tombstone } from "@ax-fabric/contracts";
 import { AxFabricError } from "@ax-fabric/contracts";
 import type { ChunkLabel } from "@ax-fabric/contracts";
 import type { AkiDB } from "@ax-fabric/akidb";
@@ -84,8 +84,8 @@ export interface PipelineMetrics {
   averageChunkSizeChars: number;
   duplicateChunks: number;
   duplicateRatio: number;
-  chunkCountBySource: Record<string, number>;
-  labelDistribution: Record<string, number>;
+  chunkCountBySource: globalThis.Record<string, number>;
+  labelDistribution: globalThis.Record<string, number>;
 }
 
 export interface PipelineFileError {
@@ -501,7 +501,7 @@ function collectFileQuality(
   chunks: Array<{ chunkHash: string; text: string; label: ChunkLabel }>,
   pipelineSignature: string,
 ): FileQualityStats {
-  const labelDistribution: Record<string, number> = {};
+  const labelDistribution: globalThis.Record<string, number> = {};
   let totalChunkChars = 0;
 
   for (const chunk of chunks) {
@@ -605,7 +605,7 @@ function createEmptyMetrics(): PipelineMetrics {
 
 function makeSuccess(
   file: ScanResult,
-  records: Record[],
+  records: FabricRecord[],
   registry: JobRegistry,
   quality?: FileQualityStats,
 ): ProcessResult {
@@ -639,17 +639,17 @@ function makeSuccess(
 interface FileQualityStats {
   chunkHashes: string[];
   totalChunkChars: number;
-  chunkCountBySource: Record<string, number>;
-  labelDistribution: Record<string, number>;
+  chunkCountBySource: globalThis.Record<string, number>;
+  labelDistribution: globalThis.Record<string, number>;
   pipelineSignature?: string;
 }
 
 interface QualityAccumulator {
   totalChunksGenerated: number;
   totalChunkChars: number;
-  chunkHashCounts: Record<string, number>;
-  chunkCountBySource: Record<string, number>;
-  labelDistribution: Record<string, number>;
+  chunkHashCounts: globalThis.Record<string, number>;
+  chunkCountBySource: globalThis.Record<string, number>;
+  labelDistribution: globalThis.Record<string, number>;
 }
 
 function createQualityAccumulator(): QualityAccumulator {

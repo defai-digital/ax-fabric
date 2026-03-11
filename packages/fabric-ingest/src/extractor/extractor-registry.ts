@@ -2,6 +2,7 @@ import { extname } from "node:path";
 import { CsvExtractor } from "./csv-extractor.js";
 import { DocxExtractor } from "./docx-extractor.js";
 import { JsonExtractor } from "./json-extractor.js";
+import { MdExtractor } from "./md-extractor.js";
 import { PdfExtractor } from "./pdf-extractor.js";
 import { PptxExtractor } from "./pptx-extractor.js";
 import { TxtExtractor } from "./txt-extractor.js";
@@ -47,6 +48,7 @@ export function createDefaultRegistry(): ExtractorRegistry {
   const xlsx = new XlsxExtractor();
   const csv = new CsvExtractor();
   const json = new JsonExtractor();
+  const md = new MdExtractor();
   const yaml = new YamlExtractor();
 
   registry.register(".txt", txt);
@@ -56,6 +58,8 @@ export function createDefaultRegistry(): ExtractorRegistry {
   registry.register(".xlsx", xlsx);
   registry.register(".csv", csv);
   registry.register(".json", json);
+  registry.register(".md", md);
+  registry.register(".markdown", md);
   registry.register(".yaml", yaml);
   registry.register(".yml", yaml);
 
