@@ -14,6 +14,8 @@ Canonical semantic store and publication release.
 - Added `ax-fabric semantic approve-store <bundleId>` to approve or reject a stored bundle and persist the decision without JSON file round-trips
 - Added `ax-fabric semantic publish <bundleId>` to embed semantic units and publish them as retrieval-ready records into a named AkiDB collection
 - Added publication state tracking: target collection, manifest version, and publication timestamp are persisted back into `semantic.db` after each publish
+- Fixed `ax-fabric semantic show <bundleId>` so canonical inspection now includes publication state from SQLite, not just review data
+- Fixed repeated `ax-fabric semantic store <file>` runs for unchanged sources so they preserve existing stored review decisions instead of resetting bundles back to `pending`
 - Added regression coverage for `SemanticStore` and all five new semantic store CLI commands
 
 ### Notes

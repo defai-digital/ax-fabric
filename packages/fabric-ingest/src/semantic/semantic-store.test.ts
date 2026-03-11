@@ -50,6 +50,37 @@ describe("SemanticStore", () => {
       expect(summaries[0]!.bundleId).toBe(bundle.bundle_id);
       expect(summaries[0]!.publishedCollectionId).toBe("default-semantic");
       expect(summaries[0]!.publishedManifestVersion).toBe(3);
+      const stored = store.getStoredBundle(bundle.bundle_id);
+      expect(stored?.publication?.collectionId).toBe("default-semantic");
+      expect(stored?.publication?.manifestVersion).toBe(3);
+      store.close();
+    } finally {
+      rmSync(workdir, { recursive: true, force: true });
+    }
+  });
+
+  it("preserves review state when an unchanged bundle is stored again", async () => {
+    const workdir = mkdtempSync(join(tmpdir(), "semantic-store-rerun-"));
+    const dbPath = join(workdir, "semantic.db");
+    const filePath = join(workdir, "guide.txt");
+    writeFileSync(filePath, "Semantic store should preserve approvals across unchanged reruns.", "utf8");
+
+    try {
+      const engine = new SemanticReviewEngine();
+      const bundle = await engine.createBundle(filePath);
+      const reviewed = engine.approveBundle(bundle, {
+        reviewer: "akira",
+        minQualityScore: 0.1,
+        duplicatePolicy: "warn",
+      });
+
+      const store = new SemanticStore(dbPath);
+      store.upsertBundle(reviewed);
+      store.upsertBundle(bundle);
+
+      const stored = store.getStoredBundle(bundle.bundle_id);
+      expect(stored?.bundle.review?.status).toBe("approved");
+      expect(stored?.bundle.review?.reviewer).toBe("akira");
       store.close();
     } finally {
       rmSync(workdir, { recursive: true, force: true });

@@ -235,8 +235,11 @@ describe("semantic CLI", () => {
       ]);
 
       await program.parseAsync(["node", "test", "semantic", "publish", bundleId]);
+      await program.parseAsync(["node", "test", "semantic", "show", bundleId]);
       const output = logSpy.mock.calls.map((call) => call.join(" ")).join("\n");
       expect(output).toContain("Published semantic bundle");
+      expect(output).toContain("Published:");
+      expect(output).toContain("Collection:");
 
       const result = await db.search({
         collectionId: "test-col-semantic",

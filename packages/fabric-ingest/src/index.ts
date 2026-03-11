@@ -87,6 +87,7 @@ export {
   SemanticStore,
   type SemanticBundleSummary,
   type SemanticPublicationState,
+  type StoredSemanticBundle,
 } from "./semantic/index.js";
 
 // ─── Layer 3.0: MCP Server ─────────────────────────────────────────────────

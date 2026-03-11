@@ -211,18 +211,25 @@ export function registerSemanticCommand(program: Command): void {
     .action((bundleId: string, opts: StoreInspectOptions) => {
       const store = openSemanticStore(opts.db);
       try {
-        const bundle = store.getBundle(bundleId);
-        if (!bundle) {
+        const stored = store.getStoredBundle(bundleId);
+        if (!stored) {
           throw new Error(`Semantic bundle "${bundleId}" not found`);
         }
         if (opts.json) {
-          console.log(JSON.stringify(bundle, null, 2));
+          console.log(JSON.stringify(stored, null, 2));
           return;
         }
+        const bundle = stored.bundle;
         printBundleDiagnostics(bundle);
         if (bundle.review) {
           console.log(`  Review status:    ${bundle.review.status}`);
           console.log(`  Reviewer:         ${bundle.review.reviewer}`);
+        }
+        console.log(`  Published:        ${stored.publication ? "yes" : "no"}`);
+        if (stored.publication) {
+          console.log(`  Collection:       ${stored.publication.collectionId}`);
+          console.log(`  Manifest version: ${String(stored.publication.manifestVersion)}`);
+          console.log(`  Published at:     ${stored.publication.publishedAt}`);
         }
       } finally {
         store.close();

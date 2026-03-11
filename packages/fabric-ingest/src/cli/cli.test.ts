@@ -1295,6 +1295,47 @@ describe("CLI commands", () => {
       expect(output).toContain("test-reviewer");
     });
 
+    it("store preserves approval when the unchanged source is stored again", async () => {
+      const sourceFile = join(sourceDir, "rerun-policy.txt");
+      writeFileSync(
+        sourceFile,
+        "Canonical semantic store approvals should survive unchanged store reruns.",
+        "utf-8",
+      );
+      const dbPath = join(dataRoot, "semantic-rerun.db");
+
+      const semanticProgram = new Command();
+      semanticProgram.exitOverride();
+      registerSemanticCommand(semanticProgram);
+
+      await semanticProgram.parseAsync([
+        "node", "test", "semantic", "store", sourceFile, "--db", dbPath,
+      ]);
+
+      const store = new SemanticStore(dbPath);
+      const bundleId = store.listBundles()[0]!.bundleId;
+      store.close();
+
+      await semanticProgram.parseAsync([
+        "node", "test", "semantic", "approve-store", bundleId,
+        "--reviewer", "test-reviewer",
+        "--min-quality", "0.1",
+        "--duplicate-policy", "warn",
+        "--db", dbPath,
+      ]);
+
+      await semanticProgram.parseAsync([
+        "node", "test", "semantic", "store", sourceFile, "--db", dbPath,
+      ]);
+
+      const verifyStore = new SemanticStore(dbPath);
+      const stored = verifyStore.getStoredBundle(bundleId);
+      verifyStore.close();
+
+      expect(stored?.bundle.review?.status).toBe("approved");
+      expect(stored?.bundle.review?.reviewer).toBe("test-reviewer");
+    });
+
     it("publish pushes an approved bundle into AkiDB and marks it published", async () => {
       const sourceFile = join(sourceDir, "spec.txt");
       writeFileSync(
@@ -1332,12 +1373,17 @@ describe("CLI commands", () => {
         "--db", dbPath,
         "--collection", "test-col-semantic",
       ]);
+      await semanticProgram.parseAsync([
+        "node", "test", "semantic", "show", bundleId, "--db", dbPath,
+      ]);
 
       const output = logSpy.mock.calls.map((c) => c.join(" ")).join("\n");
       logSpy.mockRestore();
 
       expect(output).toContain("Published semantic bundle");
       expect(output).toContain("test-col-semantic");
+      expect(output).toContain("Published:");
+      expect(output).toContain("Manifest version:");
 
       // verify publication state is persisted in the store
       const verifyStore = new SemanticStore(dbPath);
