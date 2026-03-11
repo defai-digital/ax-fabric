@@ -192,10 +192,14 @@ describe("SemanticStore", () => {
       expect(lookups[0]!.chunkId).toMatch(/^semantic:/);
       expect(lookups[0]!.sourcePath).toBe(filePath);
       expect(lookups[0]!.collectionId).toBe("default-semantic");
+      expect(lookups[0]!.title).toBeTruthy();
+      expect(lookups[0]!.qualityScore).toBeGreaterThan(0);
 
       const single = store.getPublishedUnitLookup(lookups[0]!.chunkId);
       expect(single?.sourcePath).toBe(filePath);
       expect(single?.dedupeKey).toBeTruthy();
+      expect(single?.title).toBe(lookups[0]!.title);
+      expect(single?.qualityScore).toBe(lookups[0]!.qualityScore);
       store.close();
     } finally {
       rmSync(workdir, { recursive: true, force: true });

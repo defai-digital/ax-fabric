@@ -1514,6 +1514,116 @@ describe("CLI commands", () => {
   // ─── semantic retrieval ───────────────────────────────────────────────────
 
   describe("semantic retrieval", () => {
+    it("validates the semantic publication lifecycle end-to-end", async () => {
+      const sourceFile = join(sourceDir, "semantic-lifecycle-target.txt");
+      const dbPath = join(dataRoot, "semantic.db");
+      writeFileSync(
+        sourceFile,
+        "Semantic lifecycle validation should cover publish, replace, rollback, republish, and unpublish.",
+        "utf-8",
+      );
+
+      (mockConfig as {
+        ingest: { sources: Array<{ path: string }> };
+        retrieval: { default_layer: string; semantic_collection_suffix: string };
+      }).ingest.sources = [{ path: sourceDir }];
+
+      const semanticProgram = new Command();
+      semanticProgram.exitOverride();
+      registerSemanticCommand(semanticProgram);
+
+      const searchProgram = new Command();
+      searchProgram.exitOverride();
+      registerSearchCommand(searchProgram);
+
+      const readSearchOutput = async (query: string, ...args: string[]) => {
+        db.close();
+        db = new AkiDB({ storagePath: akidbRoot });
+        const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+        try {
+          await searchProgram.parseAsync(["node", "test", "search", query, "--top-k", "5", ...args]);
+          return logSpy.mock.calls.map((call) => call.join(" ")).join("\n");
+        } finally {
+          logSpy.mockRestore();
+        }
+      };
+
+      await semanticProgram.parseAsync([
+        "node", "test", "semantic", "store", sourceFile, "--db", dbPath,
+      ]);
+
+      let store = new SemanticStore(dbPath);
+      const firstBundleId = store.listBundles()[0]!.bundleId;
+      store.close();
+
+      await semanticProgram.parseAsync([
+        "node", "test", "semantic", "approve-store", firstBundleId,
+        "--reviewer", "ci",
+        "--min-quality", "0.1",
+        "--duplicate-policy", "warn",
+        "--db", dbPath,
+      ]);
+      await semanticProgram.parseAsync([
+        "node", "test", "semantic", "publish", firstBundleId, "--db", dbPath,
+      ]);
+
+      let output = await readSearchOutput("semantic lifecycle validation", "--layer", "semantic");
+      expect(output).toContain("Layer:            semantic");
+      expect(output).toContain(sourceFile);
+
+      writeFileSync(
+        sourceFile,
+        "Semantic lifecycle validation should cover publish, replace, rollback, republish, unpublish, and provenance-aware retrieval.",
+        "utf-8",
+      );
+
+      await semanticProgram.parseAsync([
+        "node", "test", "semantic", "store", sourceFile, "--db", dbPath,
+      ]);
+
+      store = new SemanticStore(dbPath);
+      const secondBundleId = store.listBundles()[0]!.bundleId;
+      store.close();
+
+      await semanticProgram.parseAsync([
+        "node", "test", "semantic", "approve-store", secondBundleId,
+        "--reviewer", "ci",
+        "--min-quality", "0.1",
+        "--duplicate-policy", "warn",
+        "--db", dbPath,
+      ]);
+      await semanticProgram.parseAsync([
+        "node", "test", "semantic", "publish", secondBundleId, "--replace", "--db", dbPath,
+      ]);
+
+      store = new SemanticStore(dbPath);
+      expect(store.getStoredBundle(firstBundleId)?.publication).toBeNull();
+      expect(store.getStoredBundle(secondBundleId)?.publication?.collectionId).toBe("test-col-semantic");
+      const republishBaseline = store.getStoredBundle(secondBundleId)?.publication?.manifestVersion ?? -1;
+      store.close();
+
+      await semanticProgram.parseAsync([
+        "node", "test", "semantic", "rollback", firstBundleId, "--db", dbPath,
+      ]);
+      await semanticProgram.parseAsync([
+        "node", "test", "semantic", "republish", firstBundleId, "--db", dbPath,
+      ]);
+
+      store = new SemanticStore(dbPath);
+      expect(store.getStoredBundle(firstBundleId)?.publication?.collectionId).toBe("test-col-semantic");
+      expect(store.getStoredBundle(secondBundleId)?.publication).toBeNull();
+      expect((store.getStoredBundle(firstBundleId)?.publication?.manifestVersion ?? -1)).toBeGreaterThan(republishBaseline);
+      store.close();
+
+      await semanticProgram.parseAsync([
+        "node", "test", "semantic", "unpublish", firstBundleId, "--db", dbPath,
+      ]);
+
+      store = new SemanticStore(dbPath);
+      expect(store.getStoredBundle(firstBundleId)?.publication).toBeNull();
+      store.close();
+    });
+
     it("search --semantic routes to the semantic collection", async () => {
       const sourceFile = join(sourceDir, "semantic-search-target.txt");
       writeFileSync(

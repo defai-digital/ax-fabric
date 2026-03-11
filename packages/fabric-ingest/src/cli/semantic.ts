@@ -297,46 +297,16 @@ export function registerSemanticCommand(program: Command): void {
         if (!bundle) {
           throw new Error(`Semantic bundle "${bundleId}" not found`);
         }
-        if (bundle.review?.status !== "approved") {
-          throw new Error(`Semantic bundle "${bundleId}" is not approved`);
-        }
-
         const collectionId = opts.collection ?? `${config.akidb.collection}${config.retrieval.semantic_collection_suffix}`;
-        const existingPublication = store.findPublishedBundleForDoc(bundle.doc_id, collectionId);
-        if (existingPublication && existingPublication.bundleId !== bundle.bundle_id) {
-          if (opts.replace !== true) {
-            throw new Error(
-              `Semantic collection "${collectionId}" already has an active published bundle for doc_id "${bundle.doc_id}" `
-              + `(${existingPublication.bundleId}). Publish into a different collection or rerun with --replace.`,
-            );
-          }
-
-          const existingBundle = store.getBundle(existingPublication.bundleId);
-          if (!existingBundle) {
-            throw new Error(`Published semantic bundle "${existingPublication.bundleId}" not found in canonical store`);
-          }
-
-          const existingChunkIds = semanticChunkIds(existingBundle);
-          if (existingChunkIds.length > 0) {
-            db.deleteChunks(collectionId, existingChunkIds, "manual_revoke");
-            await db.publish(collectionId, {
-              embeddingModelId: config.embedder.model_id,
-              pipelineSignature: semanticPipelineSignature(existingBundle),
-            });
-          }
-          store.clearPublished(existingBundle.bundle_id);
-        }
-        ensureCollection(db, config, collectionId);
-        const records = await buildSemanticRecords(bundle, config, embedder);
-        await db.upsertBatch(collectionId, records);
-        const manifest = await db.publish(collectionId, {
-          embeddingModelId: config.embedder.model_id,
-          pipelineSignature: semanticPipelineSignature(bundle),
-        });
-        store.markPublished(bundleId, {
+        const manifest = await publishStoredBundle({
+          bundle,
+          bundleId,
+          store,
+          db,
+          config,
+          embedder,
           collectionId,
-          manifestVersion: manifest.version,
-          publishedAt: new Date().toISOString(),
+          replaceExisting: opts.replace === true,
         });
         console.log(`Published semantic bundle ${bundleId} to ${collectionId} manifest=${String(manifest.version)}`);
       } finally {
@@ -364,26 +334,97 @@ export function registerSemanticCommand(program: Command): void {
         if (!stored.publication) {
           throw new Error(`Semantic bundle "${bundleId}" is not currently published`);
         }
-
-        const chunkIds = semanticChunkIds(stored.bundle);
-        if (chunkIds.length > 0) {
-          db.deleteChunks(stored.publication.collectionId, chunkIds, "manual_revoke");
-          const manifest = await db.publish(stored.publication.collectionId, {
-            embeddingModelId: config.embedder.model_id,
-            pipelineSignature: semanticPipelineSignature(stored.bundle),
-          });
-          store.clearPublished(bundleId);
+        const manifest = await unpublishStoredBundle({
+          bundleId,
+          bundle: stored.bundle,
+          publication: stored.publication,
+          store,
+          db,
+          config,
+        });
+        if (manifest) {
           console.log(
             `Unpublished semantic bundle ${bundleId} from ${stored.publication.collectionId} `
             + `manifest=${String(manifest.version)}`,
           );
-          return;
+        } else {
+          console.log(`Cleared publication state for semantic bundle ${bundleId}`);
         }
-
-        store.clearPublished(bundleId);
-        console.log(`Cleared publication state for semantic bundle ${bundleId}`);
       } finally {
         db.close();
+        store.close();
+      }
+    });
+
+  semantic
+    .command("republish <bundleId>")
+    .description("Republish an already published semantic bundle into its current AkiDB collection")
+    .option("--db <path>", "Override semantic.db path")
+    .action(async (bundleId: string, opts: UnpublishOptions) => {
+      const config = loadConfig(resolveConfigPath());
+      const store = openSemanticStore(opts.db);
+      const embedder = createEmbedderFromConfig(config);
+      const akidbRoot = expandTilde(config.akidb.root);
+      const db = new AkiDB({ storagePath: akidbRoot });
+
+      try {
+        const stored = store.getStoredBundle(bundleId);
+        if (!stored) {
+          throw new Error(`Semantic bundle "${bundleId}" not found`);
+        }
+        if (!stored.publication) {
+          throw new Error(`Semantic bundle "${bundleId}" is not currently published`);
+        }
+        const manifest = await publishStoredBundle({
+          bundle: stored.bundle,
+          bundleId,
+          store,
+          db,
+          config,
+          embedder,
+          collectionId: stored.publication.collectionId,
+          replaceExisting: true,
+        });
+        console.log(`Republished semantic bundle ${bundleId} to ${stored.publication.collectionId} manifest=${String(manifest.version)}`);
+      } finally {
+        db.close();
+        await embedder.close?.();
+        store.close();
+      }
+    });
+
+  semantic
+    .command("rollback <bundleId>")
+    .description("Rollback the active published semantic bundle for the same document to a specific approved bundle")
+    .option("--db <path>", "Override semantic.db path")
+    .option("--collection <id>", "Target AkiDB collection (default: <config.collection>-semantic)")
+    .action(async (bundleId: string, opts: PublishOptions) => {
+      const config = loadConfig(resolveConfigPath());
+      const store = openSemanticStore(opts.db);
+      const embedder = createEmbedderFromConfig(config);
+      const akidbRoot = expandTilde(config.akidb.root);
+      const db = new AkiDB({ storagePath: akidbRoot });
+
+      try {
+        const bundle = store.getBundle(bundleId);
+        if (!bundle) {
+          throw new Error(`Semantic bundle "${bundleId}" not found`);
+        }
+        const collectionId = opts.collection ?? `${config.akidb.collection}${config.retrieval.semantic_collection_suffix}`;
+        const manifest = await publishStoredBundle({
+          bundle,
+          bundleId,
+          store,
+          db,
+          config,
+          embedder,
+          collectionId,
+          replaceExisting: true,
+        });
+        console.log(`Rolled back semantic bundle ${bundleId} into ${collectionId} manifest=${String(manifest.version)}`);
+      } finally {
+        db.close();
+        await embedder.close?.();
         store.close();
       }
     });
@@ -453,6 +494,99 @@ interface PublishOptions {
 
 interface UnpublishOptions {
   db?: string;
+}
+
+async function publishStoredBundle(args: {
+  bundleId: string;
+  bundle: SemanticBundle;
+  store: SemanticStore;
+  db: AkiDB;
+  config: FabricConfig;
+  embedder: ReturnType<typeof createEmbedderFromConfig>;
+  collectionId: string;
+  replaceExisting: boolean;
+}) {
+  if (args.bundle.review?.status !== "approved") {
+    throw new Error(`Semantic bundle "${args.bundleId}" is not approved`);
+  }
+
+  const existingPublication = args.store.findPublishedBundleForDoc(args.bundle.doc_id, args.collectionId);
+  if (existingPublication && existingPublication.bundleId !== args.bundle.bundle_id) {
+    if (args.replaceExisting !== true) {
+      throw new Error(
+        `Semantic collection "${args.collectionId}" already has an active published bundle for doc_id "${args.bundle.doc_id}" `
+        + `(${existingPublication.bundleId}). Publish into a different collection or rerun with --replace.`,
+      );
+    }
+
+    const existingBundle = args.store.getBundle(existingPublication.bundleId);
+    if (!existingBundle) {
+      throw new Error(`Published semantic bundle "${existingPublication.bundleId}" not found in canonical store`);
+    }
+    await revokeBundleFromCollection({
+      bundleId: existingPublication.bundleId,
+      bundle: existingBundle,
+      collectionId: args.collectionId,
+      store: args.store,
+      db: args.db,
+      config: args.config,
+    });
+  }
+
+  ensureCollection(args.db, args.config, args.collectionId);
+  const records = await buildSemanticRecords(args.bundle, args.config, args.embedder);
+  await args.db.upsertBatch(args.collectionId, records);
+  const manifest = await args.db.publish(args.collectionId, {
+    embeddingModelId: args.config.embedder.model_id,
+    pipelineSignature: semanticPipelineSignature(args.bundle),
+  });
+  args.store.markPublished(args.bundleId, {
+    collectionId: args.collectionId,
+    manifestVersion: manifest.version,
+    publishedAt: new Date().toISOString(),
+  });
+  return manifest;
+}
+
+async function unpublishStoredBundle(args: {
+  bundleId: string;
+  bundle: SemanticBundle;
+  publication: { collectionId: string };
+  store: SemanticStore;
+  db: AkiDB;
+  config: FabricConfig;
+}) {
+  return revokeBundleFromCollection({
+    bundleId: args.bundleId,
+    bundle: args.bundle,
+    collectionId: args.publication.collectionId,
+    store: args.store,
+    db: args.db,
+    config: args.config,
+  });
+}
+
+async function revokeBundleFromCollection(args: {
+  bundleId: string;
+  bundle: SemanticBundle;
+  collectionId: string;
+  store: SemanticStore;
+  db: AkiDB;
+  config: FabricConfig;
+}) {
+  const chunkIds = semanticChunkIds(args.bundle);
+  if (chunkIds.length > 0) {
+    args.db.deleteChunks(args.collectionId, chunkIds, "manual_revoke");
+    const manifest = await args.db.publish(args.collectionId, {
+      embeddingModelId: args.config.embedder.model_id,
+      pipelineSignature: semanticPipelineSignature(args.bundle),
+    });
+    args.store.clearPublished(args.bundleId);
+    return manifest;
+  }
+
+  args.store.clearPublished(args.bundleId);
+  return null;
 }
 
 async function distillFromCli(

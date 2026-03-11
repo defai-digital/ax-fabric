@@ -1,5 +1,26 @@
 # Changelog
 
+## v2.0.0
+
+Semantic workflow core release.
+
+### Highlights
+
+- Completed `v2.0 Phase 1` hardening with semantic publication lifecycle helpers, retrieval service extraction, semantic store schema versioning, hot-path retrieval tightening, and benchmark gate support
+- Improved semantic distillation quality with stronger summary selection, duplicate normalization, noisy-content penalties, richer quality scoring, and more informative semantic answers
+- Added richer semantic metadata to semantic units including `themes` and structured `quality_signals` for retrieval, review, and explainability workflows
+- Improved retrieval explainability so semantic and fused search results now expose matched layers, provenance-aware dedupe keys, semantic titles, and semantic quality metadata
+- Extended semantic publication workflows with `republish` and `rollback`, making the canonical semantic lifecycle operational beyond simple publish / replace / unpublish
+- Added high-value MCP semantic workflow tools for bundle creation, listing, inspection, approval, and publication
+- Added validation gates covering canonical store lookups, semantic publication lifecycle end-to-end flows, benchmark gating, and MCP semantic workflow execution
+- Fixed MCP semantic store path resolution to use `resolveDataRoot(config)` so semantic workflows respect `~` expansion and match CLI behavior
+
+### Notes
+
+- `v2.0.0` is the first release where AX Fabric operates as a coherent semantic workflow core across CLI, canonical store, retrieval, and MCP
+- Enterprise-only governance, RBAC, and private deployment features remain out of scope for this repository
+- Planning artifacts under `automatosx/` remain local-only and are not part of the published release
+
 ## v1.9.2
 
 Bug-fix patch release.

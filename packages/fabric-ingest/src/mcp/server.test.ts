@@ -38,7 +38,7 @@ function createTestConfig(tmpDir: string): FabricConfig {
 function createTestServer(db: AkiDB, config: FabricConfig, registryDbPath: string, memoryStorePath: string) {
   const server = new McpServer({
     name: "ax-fabric-test",
-    version: "1.7.0",
+    version: "2.0.0",
   }, {
     capabilities: { tools: {}, resources: {} },
   });
@@ -81,7 +81,7 @@ describe("MCP Server", () => {
 
     it("registers akidb tools with correct server instance", () => {
       const server = new McpServer(
-        { name: "test", version: "1.7.0" },
+        { name: "test", version: "2.0.0" },
         { capabilities: { tools: {} } },
       );
       expect(() => registerAkiDbTools(server, db)).not.toThrow();
@@ -89,7 +89,7 @@ describe("MCP Server", () => {
 
     it("registers fabric tools with correct dependencies", () => {
       const server = new McpServer(
-        { name: "test", version: "1.7.0" },
+        { name: "test", version: "2.0.0" },
         { capabilities: { tools: {} } },
       );
       const embedder = new MockEmbedder({ modelId: "test", dimension: 128 });
@@ -100,7 +100,7 @@ describe("MCP Server", () => {
   describe("resource registration", () => {
     it("registers all resources without errors", () => {
       const server = new McpServer(
-        { name: "test", version: "1.7.0" },
+        { name: "test", version: "2.0.0" },
         { capabilities: { resources: {} } },
       );
       expect(() => registerResources(server, { db, config, registryDbPath })).not.toThrow();

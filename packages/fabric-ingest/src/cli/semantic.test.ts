@@ -447,4 +447,113 @@ describe("semantic CLI", () => {
       rmSync(workdir, { recursive: true, force: true });
     }
   });
+
+  it("republishes an already published bundle into the same semantic collection", async () => {
+    const workdir = mkdtempSync(join(tmpdir(), "semantic-cli-republish-same-"));
+    const filePath = join(workdir, "guide.txt");
+    const dataRoot = join(workdir, "data");
+    const akidbRoot = join(dataRoot, "akidb");
+    writeFileSync(
+      filePath,
+      "Semantic republish should rebuild the active semantic collection for the same bundle.",
+      "utf8",
+    );
+    mockConfig = {
+      ...mockConfig,
+      fabric: { data_root: dataRoot, max_storage_gb: 50 },
+      akidb: { root: akidbRoot, collection: "test-col", metric: "cosine", dimension: 128 },
+    };
+
+    const program = makeProgram();
+    const storePath = join(dataRoot, "semantic.db");
+
+    try {
+      await program.parseAsync(["node", "test", "semantic", "store", filePath]);
+      let store = new SemanticStore(storePath);
+      const bundleId = store.listBundles()[0]!.bundleId;
+      store.close();
+
+      await program.parseAsync([
+        "node", "test", "semantic", "approve-store", bundleId,
+        "--reviewer", "akira",
+        "--min-quality", "0.5",
+        "--duplicate-policy", "warn",
+      ]);
+      await program.parseAsync(["node", "test", "semantic", "publish", bundleId]);
+
+      store = new SemanticStore(storePath);
+      const publishedBefore = store.getStoredBundle(bundleId)!.publication!.manifestVersion;
+      store.close();
+
+      await program.parseAsync(["node", "test", "semantic", "republish", bundleId]);
+
+      store = new SemanticStore(storePath);
+      const publishedAfter = store.getStoredBundle(bundleId)!.publication!.manifestVersion;
+      expect(publishedAfter).toBeGreaterThan(publishedBefore);
+      store.close();
+    } finally {
+      rmSync(workdir, { recursive: true, force: true });
+    }
+  });
+
+  it("rolls back the active semantic publication to an older approved bundle", async () => {
+    const workdir = mkdtempSync(join(tmpdir(), "semantic-cli-rollback-"));
+    const filePath = join(workdir, "guide.txt");
+    const dataRoot = join(workdir, "data");
+    writeFileSync(
+      filePath,
+      "Semantic rollback should restore the previously approved semantic bundle.",
+      "utf8",
+    );
+    mockConfig = {
+      ...mockConfig,
+      fabric: { data_root: dataRoot, max_storage_gb: 50 },
+      akidb: { root: join(dataRoot, "akidb"), collection: "test-col", metric: "cosine", dimension: 128 },
+    };
+
+    const program = makeProgram();
+    const storePath = join(dataRoot, "semantic.db");
+
+    try {
+      await program.parseAsync(["node", "test", "semantic", "store", filePath]);
+      let store = new SemanticStore(storePath);
+      const firstBundleId = store.listBundles()[0]!.bundleId;
+      store.close();
+
+      await program.parseAsync([
+        "node", "test", "semantic", "approve-store", firstBundleId,
+        "--reviewer", "akira",
+        "--min-quality", "0.5",
+        "--duplicate-policy", "warn",
+      ]);
+      await program.parseAsync(["node", "test", "semantic", "publish", firstBundleId]);
+
+      writeFileSync(
+        filePath,
+        "Semantic rollback should restore an older approved bundle after a newer revision replaced it.",
+        "utf8",
+      );
+
+      await program.parseAsync(["node", "test", "semantic", "store", filePath]);
+      store = new SemanticStore(storePath);
+      const secondBundleId = store.listBundles()[0]!.bundleId;
+      store.close();
+
+      await program.parseAsync([
+        "node", "test", "semantic", "approve-store", secondBundleId,
+        "--reviewer", "akira",
+        "--min-quality", "0.5",
+        "--duplicate-policy", "warn",
+      ]);
+      await program.parseAsync(["node", "test", "semantic", "publish", secondBundleId, "--replace"]);
+      await program.parseAsync(["node", "test", "semantic", "rollback", firstBundleId]);
+
+      store = new SemanticStore(storePath);
+      expect(store.getStoredBundle(firstBundleId)?.publication?.collectionId).toBe("test-col-semantic");
+      expect(store.getStoredBundle(secondBundleId)?.publication).toBeNull();
+      store.close();
+    } finally {
+      rmSync(workdir, { recursive: true, force: true });
+    }
+  });
 });

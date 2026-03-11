@@ -54,7 +54,7 @@ async function setupE2e(embedderOverride?: EmbedderProvider) {
 
   // Create MCP server
   const server = new McpServer(
-    { name: "ax-fabric-e2e", version: "1.7.0" },
+    { name: "ax-fabric-e2e", version: "2.0.0" },
     { capabilities: { tools: {}, resources: {} } },
   );
 
@@ -66,7 +66,7 @@ async function setupE2e(embedderOverride?: EmbedderProvider) {
   const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
 
   // Create client
-  const client = new Client({ name: "e2e-test-client", version: "1.7.0" });
+  const client = new Client({ name: "e2e-test-client", version: "2.0.0" });
 
   // Connect both sides
   await server.connect(serverTransport);
@@ -100,13 +100,15 @@ describe("MCP E2E", () => {
     const result = await client.listTools();
     const toolNames = result.tools.map((t) => t.name).sort();
 
-    // Should have all 23 tools (9 akidb + 10 fabric + 4 fabric_memory)
-    expect(toolNames.length).toBe(23);
+    // Should have all 28 tools (9 akidb + 15 fabric/workflow + 4 fabric_memory)
+    expect(toolNames.length).toBe(28);
     expect(toolNames).toContain("akidb_create_collection");
     expect(toolNames).toContain("akidb_search");
     expect(toolNames).toContain("fabric_search");
     expect(toolNames).toContain("fabric_ingest_run");
     expect(toolNames).toContain("fabric_config_show");
+    expect(toolNames).toContain("fabric_semantic_store_bundle");
+    expect(toolNames).toContain("fabric_semantic_publish_bundle");
   });
 
   it("lists available resources", async () => {
@@ -302,6 +304,70 @@ describe("MCP E2E", () => {
       keywordDb.close();
       rmSync(keywordTmpDir, { recursive: true, force: true });
     }
+  });
+
+  it("runs the semantic MCP workflow: store -> approve -> publish", async () => {
+    const filePath = join(docsDir, "semantic-guide.txt");
+    writeFileSync(
+      filePath,
+      "Semantic MCP workflow should create a reviewable bundle, approve it, and publish it into semantic retrieval.",
+      "utf-8",
+    );
+
+    const storeResult = await client.callTool({
+      name: "fabric_semantic_store_bundle",
+      arguments: {
+        file_path: filePath,
+        low_quality_threshold: 0.5,
+      },
+    });
+    expect(storeResult.isError).toBeFalsy();
+    const stored = JSON.parse((storeResult.content as Array<{ text: string }>)[0]!.text) as {
+      bundle_id: string;
+      review_status: string;
+    };
+    expect(stored.review_status).toBe("pending");
+
+    const approveResult = await client.callTool({
+      name: "fabric_semantic_approve_bundle",
+      arguments: {
+        bundle_id: stored.bundle_id,
+        reviewer: "mcp-tester",
+        min_quality_score: 0.5,
+        duplicate_policy: "warn",
+      },
+    });
+    expect(approveResult.isError).toBeFalsy();
+    const approved = JSON.parse((approveResult.content as Array<{ text: string }>)[0]!.text) as {
+      review: { status: string };
+    };
+    expect(approved.review.status).toBe("approved");
+
+    const publishResult = await client.callTool({
+      name: "fabric_semantic_publish_bundle",
+      arguments: {
+        bundle_id: stored.bundle_id,
+      },
+    });
+    expect(publishResult.isError).toBeFalsy();
+    const published = JSON.parse((publishResult.content as Array<{ text: string }>)[0]!.text) as {
+      collection_id: string;
+      manifest_version: number;
+    };
+    expect(published.collection_id).toBe("e2e-test-semantic");
+    expect(typeof published.manifest_version).toBe("number");
+
+    const inspectResult = await client.callTool({
+      name: "fabric_semantic_inspect_bundle",
+      arguments: {
+        bundle_id: stored.bundle_id,
+      },
+    });
+    expect(inspectResult.isError).toBeFalsy();
+    const inspected = JSON.parse((inspectResult.content as Array<{ text: string }>)[0]!.text) as {
+      publication: { collectionId: string } | null;
+    };
+    expect(inspected.publication?.collectionId).toBe("e2e-test-semantic");
   });
 
   it("fabric_ingest_diff returns change detection results", async () => {

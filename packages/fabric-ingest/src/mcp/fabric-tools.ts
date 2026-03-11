@@ -1,13 +1,16 @@
 /**
  * fabric_* MCP tool handlers — ADR-028.
  *
- * 10 tools for the ingestion pipeline and search operations.
+ * Ingestion, semantic workflow, search, config, and memory tools.
  */
+
+import { createHash } from "node:crypto";
+import { join } from "node:path";
 
 import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { AkiDB } from "@ax-fabric/akidb";
-import type { EmbedderProvider } from "@ax-fabric/contracts";
+import type { EmbedderProvider, Record as AkiRecord, SemanticBundle } from "@ax-fabric/contracts";
 import { MetadataFilterSchema, type MetadataFilter } from "@ax-fabric/contracts";
 
 import { Pipeline } from "../pipeline/index.js";
@@ -19,9 +22,10 @@ import { chunk } from "../chunker/index.js";
 import { CHUNKER_VERSION } from "../chunker/index.js";
 import { JobRegistry } from "../registry/index.js";
 import { MemoryStore } from "../memory/index.js";
-import type { FabricConfig } from "../cli/config-loader.js";
+import { resolveDataRoot, type FabricConfig } from "../cli/config-loader.js";
 import { NORMALIZER_VERSION } from "../normalizer/index.js";
 import { RecordBuilder } from "../builder/index.js";
+import { SemanticReviewEngine, SemanticStore } from "../semantic/index.js";
 
 export interface FabricToolsDeps {
   db: AkiDB;
@@ -33,6 +37,7 @@ export interface FabricToolsDeps {
 
 export function registerFabricTools(server: McpServer, deps: FabricToolsDeps): void {
   const { db, embedder, config, memoryStorePath } = deps;
+  const semanticDbPath = join(resolveDataRoot(config), "semantic.db");
 
   // ── fabric_ingest_run ─────────────────────────────────────────────────────
 
@@ -281,6 +286,201 @@ export function registerFabricTools(server: McpServer, deps: FabricToolsDeps): v
             text: JSON.stringify({ results: enrichedResults }, null, 2),
           }],
         };
+      } catch (e) {
+        return { content: [{ type: "text" as const, text: `Error: ${(e as Error).message}` }], isError: true };
+      }
+    },
+  );
+
+  // ── fabric_semantic_store_bundle ──────────────────────────────────────────
+
+  server.tool(
+    "fabric_semantic_store_bundle",
+    "Create a semantic bundle from a file and store it in the canonical semantic store",
+    {
+      file_path: z.string().describe("Path to the source file"),
+      low_quality_threshold: z.number().min(0).max(1).optional().default(0.6).describe("Flag units below this score"),
+      strategy: z.enum(["auto", "fixed", "markdown", "structured"]).optional().describe("Chunking strategy override"),
+    },
+    async (args) => {
+      try {
+        const engine = new SemanticReviewEngine();
+        const bundle = await engine.createBundle(args.file_path, {
+          strategy: args.strategy,
+          chunkSize: config.ingest.chunking.chunk_size,
+          overlapRatio: config.ingest.chunking.overlap,
+          lowQualityThreshold: args.low_quality_threshold,
+        });
+        const store = new SemanticStore(semanticDbPath);
+        try {
+          store.upsertBundle(bundle);
+        } finally {
+          store.close();
+        }
+        return {
+          content: [{
+            type: "text" as const,
+            text: JSON.stringify({
+              bundle_id: bundle.bundle_id,
+              source_path: bundle.source_path,
+              total_units: bundle.diagnostics.total_units,
+              average_quality_score: bundle.diagnostics.average_quality_score,
+              review_status: bundle.review?.status ?? "pending",
+            }, null, 2),
+          }],
+        };
+      } catch (e) {
+        return { content: [{ type: "text" as const, text: `Error: ${(e as Error).message}` }], isError: true };
+      }
+    },
+  );
+
+  // ── fabric_semantic_list_bundles ──────────────────────────────────────────
+
+  server.tool(
+    "fabric_semantic_list_bundles",
+    "List semantic bundles from the canonical semantic store",
+    {},
+    async () => {
+      try {
+        const store = new SemanticStore(semanticDbPath);
+        try {
+          const bundles = store.listBundles();
+          return {
+            content: [{
+              type: "text" as const,
+              text: JSON.stringify({ bundles }, null, 2),
+            }],
+          };
+        } finally {
+          store.close();
+        }
+      } catch (e) {
+        return { content: [{ type: "text" as const, text: `Error: ${(e as Error).message}` }], isError: true };
+      }
+    },
+  );
+
+  // ── fabric_semantic_inspect_bundle ────────────────────────────────────────
+
+  server.tool(
+    "fabric_semantic_inspect_bundle",
+    "Inspect a semantic bundle and its publication state from the canonical semantic store",
+    {
+      bundle_id: z.string().describe("Semantic bundle ID"),
+    },
+    async (args) => {
+      try {
+        const store = new SemanticStore(semanticDbPath);
+        try {
+          const stored = store.getStoredBundle(args.bundle_id);
+          if (!stored) {
+            return { content: [{ type: "text" as const, text: `Error: Semantic bundle not found: ${args.bundle_id}` }], isError: true };
+          }
+          return {
+            content: [{
+              type: "text" as const,
+              text: JSON.stringify(stored, null, 2),
+            }],
+          };
+        } finally {
+          store.close();
+        }
+      } catch (e) {
+        return { content: [{ type: "text" as const, text: `Error: ${(e as Error).message}` }], isError: true };
+      }
+    },
+  );
+
+  // ── fabric_semantic_approve_bundle ────────────────────────────────────────
+
+  server.tool(
+    "fabric_semantic_approve_bundle",
+    "Approve or reject a stored semantic bundle under the configured review policy",
+    {
+      bundle_id: z.string().describe("Semantic bundle ID"),
+      reviewer: z.string().min(1).describe("Reviewer identity"),
+      min_quality_score: z.number().min(0).max(1).optional().default(0.7).describe("Minimum quality score"),
+      duplicate_policy: z.enum(["warn", "reject"]).optional().default("reject").describe("Duplicate handling policy"),
+      notes: z.string().optional().describe("Optional review notes"),
+    },
+    async (args) => {
+      try {
+        const store = new SemanticStore(semanticDbPath);
+        try {
+          const bundle = store.getBundle(args.bundle_id);
+          if (!bundle) {
+            return { content: [{ type: "text" as const, text: `Error: Semantic bundle not found: ${args.bundle_id}` }], isError: true };
+          }
+          const engine = new SemanticReviewEngine();
+          const reviewed = engine.approveBundle(bundle, {
+            reviewer: args.reviewer,
+            minQualityScore: args.min_quality_score,
+            duplicatePolicy: args.duplicate_policy,
+            notes: args.notes,
+          });
+          store.upsertBundle(reviewed);
+          return {
+            content: [{
+              type: "text" as const,
+              text: JSON.stringify({
+                bundle_id: reviewed.bundle_id,
+                review: reviewed.review,
+                diagnostics: reviewed.diagnostics,
+              }, null, 2),
+            }],
+          };
+        } finally {
+          store.close();
+        }
+      } catch (e) {
+        return { content: [{ type: "text" as const, text: `Error: ${(e as Error).message}` }], isError: true };
+      }
+    },
+  );
+
+  // ── fabric_semantic_publish_bundle ────────────────────────────────────────
+
+  server.tool(
+    "fabric_semantic_publish_bundle",
+    "Publish an approved semantic bundle into the semantic AkiDB collection",
+    {
+      bundle_id: z.string().describe("Semantic bundle ID"),
+      collection_id: z.string().optional().describe("Override semantic collection ID"),
+      replace_existing: z.boolean().optional().default(false).describe("Replace the active bundle for the same doc"),
+    },
+    async (args) => {
+      try {
+        const store = new SemanticStore(semanticDbPath);
+        try {
+          const bundle = store.getBundle(args.bundle_id);
+          if (!bundle) {
+            return { content: [{ type: "text" as const, text: `Error: Semantic bundle not found: ${args.bundle_id}` }], isError: true };
+          }
+          const collectionId = args.collection_id ?? `${config.akidb.collection}${config.retrieval.semantic_collection_suffix}`;
+          const manifest = await publishSemanticBundle({
+            bundleId: args.bundle_id,
+            bundle,
+            store,
+            db,
+            embedder,
+            config,
+            collectionId,
+            replaceExisting: args.replace_existing === true,
+          });
+          return {
+            content: [{
+              type: "text" as const,
+              text: JSON.stringify({
+                bundle_id: args.bundle_id,
+                collection_id: collectionId,
+                manifest_version: manifest.version,
+              }, null, 2),
+            }],
+          };
+        } finally {
+          store.close();
+        }
       } catch (e) {
         return { content: [{ type: "text" as const, text: `Error: ${(e as Error).message}` }], isError: true };
       }
@@ -573,4 +773,135 @@ function toMetadataFilter(value: Record<string, unknown> | undefined): MetadataF
     throw new Error(`Invalid metadata filter: ${issues}`);
   }
   return result.data;
+}
+
+function ensureCollection(db: AkiDB, config: FabricConfig, collectionId: string): void {
+  try {
+    db.getCollection(collectionId);
+  } catch (error) {
+    if (!(error instanceof Error && error.message.includes("not found"))) {
+      throw error;
+    }
+    db.createCollection({
+      collectionId,
+      dimension: config.akidb.dimension,
+      metric: config.akidb.metric,
+      embeddingModelId: config.embedder.model_id,
+    });
+  }
+}
+
+async function publishSemanticBundle(args: {
+  bundleId: string;
+  bundle: SemanticBundle;
+  store: SemanticStore;
+  db: AkiDB;
+  embedder: EmbedderProvider;
+  config: FabricConfig;
+  collectionId: string;
+  replaceExisting: boolean;
+}) {
+  if (args.bundle.review?.status !== "approved") {
+    throw new Error(`Semantic bundle "${args.bundleId}" is not approved`);
+  }
+
+  const existingPublication = args.store.findPublishedBundleForDoc(args.bundle.doc_id, args.collectionId);
+  if (existingPublication && existingPublication.bundleId !== args.bundle.bundle_id) {
+    if (args.replaceExisting !== true) {
+      throw new Error(
+        `Semantic collection "${args.collectionId}" already has an active published bundle for doc_id "${args.bundle.doc_id}" `
+        + `(${existingPublication.bundleId}). Rerun with replace_existing=true to replace it.`,
+      );
+    }
+
+    const existingBundle = args.store.getBundle(existingPublication.bundleId);
+    if (!existingBundle) {
+      throw new Error(`Published semantic bundle "${existingPublication.bundleId}" not found in canonical store`);
+    }
+    await revokeSemanticBundle(existingPublication.bundleId, existingBundle, args.collectionId, args.store, args.db, args.config);
+  }
+
+  ensureCollection(args.db, args.config, args.collectionId);
+  const records = await buildSemanticRecords(args.bundle, args.config, args.embedder);
+  await args.db.upsertBatch(args.collectionId, records);
+  const manifest = await args.db.publish(args.collectionId, {
+    embeddingModelId: args.config.embedder.model_id,
+    pipelineSignature: semanticPipelineSignature(args.bundle),
+  });
+  args.store.markPublished(args.bundleId, {
+    collectionId: args.collectionId,
+    manifestVersion: manifest.version,
+    publishedAt: new Date().toISOString(),
+  });
+  return manifest;
+}
+
+async function revokeSemanticBundle(
+  bundleId: string,
+  bundle: SemanticBundle,
+  collectionId: string,
+  store: SemanticStore,
+  db: AkiDB,
+  config: FabricConfig,
+) {
+  const chunkIds = semanticChunkIds(bundle);
+  if (chunkIds.length > 0) {
+    db.deleteChunks(collectionId, chunkIds, "manual_revoke");
+    await db.publish(collectionId, {
+      embeddingModelId: config.embedder.model_id,
+      pipelineSignature: semanticPipelineSignature(bundle),
+    });
+  }
+  store.clearPublished(bundleId);
+}
+
+async function buildSemanticRecords(
+  bundle: SemanticBundle,
+  config: FabricConfig,
+  embedder: EmbedderProvider,
+): Promise<AkiRecord[]> {
+  const texts = bundle.units.map((unit) => semanticUnitText(unit));
+  const vectors = await embedder.embed(texts);
+  const createdAt = new Date().toISOString();
+
+  return bundle.units.map((unit, index) => {
+    const text = texts[index]!;
+    const vector = vectors[index]!;
+    const span = unit.source_spans[0]!;
+    return {
+      chunk_id: `semantic:${unit.unit_id}`,
+      doc_id: bundle.doc_id,
+      doc_version: bundle.doc_version,
+      chunk_hash: digest(text),
+      pipeline_signature: semanticPipelineSignature(bundle),
+      embedding_model_id: config.embedder.model_id,
+      vector,
+      metadata: {
+        source_uri: span.source_uri,
+        content_type: span.content_type,
+        page_range: span.page_range,
+        offset: span.offset_start,
+        table_ref: span.table_ref,
+        chunk_label: span.chunk_label,
+        created_at: createdAt,
+      },
+      chunk_text: text,
+    };
+  });
+}
+
+function semanticUnitText(unit: SemanticBundle["units"][number]): string {
+  return `${unit.title}\n\n${unit.summary}\n\n${unit.answer}`;
+}
+
+function semanticChunkIds(bundle: SemanticBundle): string[] {
+  return bundle.units.map((unit) => `semantic:${unit.unit_id}`);
+}
+
+function semanticPipelineSignature(bundle: SemanticBundle): string {
+  return `semantic-store:${bundle.distill_strategy}:${bundle.review?.status ?? "pending"}`;
+}
+
+function digest(input: string): string {
+  return createHash("sha256").update(input, "utf8").digest("hex");
 }

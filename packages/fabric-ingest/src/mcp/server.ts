@@ -2,7 +2,7 @@
  * MCP server entry point — ADR-028/029.
  *
  * Launches the ax-fabric MCP server with stdio transport.
- * Registers all 23 tools (9 akidb_* + 10 fabric_* + 4 fabric_memory_*) and 5 resources.
+ * Registers all MCP tools and resources for the OSS/business semantic workflow surface.
  */
 
 import { join } from "node:path";
@@ -57,7 +57,7 @@ export function createMcpServer(options?: McpServerOptions): {
   // Create MCP server
   const server = new McpServer({
     name: "ax-fabric",
-    version: "1.7.0",
+    version: "2.0.0",
   }, {
     capabilities: {
       tools: {},
