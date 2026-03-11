@@ -26,6 +26,7 @@ import { registerIngestDiffCommand } from "./ingest-diff.js";
 import { registerIngestRunCommand } from "./ingest-run.js";
 import { registerIngestStatusCommand } from "./ingest-status.js";
 import { registerSearchCommand } from "./search.js";
+import { registerDoctorCommand } from "./doctor.js";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -105,6 +106,7 @@ function createTestDb(akidbRoot: string, dimension = 128): AkiDB {
 
 let mockConfigPath = "";
 let mockConfig: Record<string, unknown> = {};
+let mockMcpToken: string | undefined;
 
 vi.mock("./config-loader.js", () => ({
   resolveConfigPath: () => mockConfigPath,
@@ -121,6 +123,10 @@ vi.mock("./config-loader.js", () => ({
     // Also update the mock so subsequent loadConfig calls see the change
     mockConfig = config;
   },
+}));
+
+vi.mock("../mcp/auth.js", () => ({
+  readToken: () => mockMcpToken,
 }));
 
 // ─── Tests ───────────────────────────────────────────────────────────────────
@@ -166,6 +172,7 @@ describe("CLI commands", () => {
         batch_size: 64,
       },
     };
+    mockMcpToken = undefined;
 
     writeTestConfig(configPath, {
       dataRoot,
@@ -255,6 +262,82 @@ describe("CLI commands", () => {
 
       const sources = (mockConfig as { ingest: { sources: Array<{ path: string }> } }).ingest.sources;
       expect(sources.length).toBe(1);
+    });
+  });
+
+  describe("doctor", () => {
+    it("reports local readiness checks", async () => {
+      mockMcpToken = "axf_tk_exampletoken";
+      mkdirSync(join(workDir, ".ax-fabric"), { recursive: true });
+      writeFileSync(
+        join(workDir, ".ax-fabric", "status.json"),
+        JSON.stringify({
+          status: "idle",
+          data_folder: sourceDir,
+          daemon_pid: 12345,
+        }),
+        "utf-8",
+      );
+
+      const originalHome = process.env["HOME"];
+      process.env["HOME"] = workDir;
+
+      const program = new Command();
+      program.exitOverride();
+      registerDoctorCommand(program);
+
+      const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+
+      try {
+        await program.parseAsync(["node", "test", "doctor", "--config", configPath]);
+      } catch {
+        // Commander may throw on exitOverride
+      } finally {
+        process.env["HOME"] = originalHome;
+      }
+
+      const output = logSpy.mock.calls.map((call) => String(call[0] ?? "")).join("\n");
+      logSpy.mockRestore();
+
+      expect(output).toContain("[ok] config:");
+      expect(output).toContain("[ok] mcp-token: present");
+      expect(output).toContain("[ok] daemon-status: idle");
+    });
+
+    it("checks configured HTTP endpoints when requested", async () => {
+      mockConfig = {
+        ...mockConfig,
+        embedder: {
+          type: "http",
+          model_id: "text-embedding-3-small",
+          dimension: 128,
+          batch_size: 64,
+          base_url: "http://127.0.0.1:18080/v1/embeddings",
+        },
+      };
+
+      const originalFetch = globalThis.fetch;
+      globalThis.fetch = vi.fn(async () => new Response("ok", { status: 200 })) as typeof fetch;
+
+      const program = new Command();
+      program.exitOverride();
+      registerDoctorCommand(program);
+
+      const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+
+      try {
+        await program.parseAsync(["node", "test", "doctor", "--config", configPath, "--check-serving"]);
+      } catch {
+        // Commander may throw on exitOverride
+      } finally {
+        globalThis.fetch = originalFetch;
+      }
+
+      const output = logSpy.mock.calls.map((call) => String(call[0] ?? "")).join("\n");
+      logSpy.mockRestore();
+
+      expect(output).toContain("[ok] endpoint:embedder:");
+      expect(output).toContain("reachable");
     });
   });
 

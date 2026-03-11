@@ -15,6 +15,7 @@ import { registerSearchCommand } from "./cli/search.js";
 import { registerMcpCommand } from "./cli/mcp.js";
 import { registerOrchestratorCommand } from "./cli/orchestrator.js";
 import { registerDaemonCommand } from "./cli/daemon.js";
+import { registerDoctorCommand } from "./cli/doctor.js";
 
 const program = new Command();
 
@@ -38,5 +39,6 @@ registerSearchCommand(program);
 registerMcpCommand(program);
 registerOrchestratorCommand(program);
 registerDaemonCommand(program);
+registerDoctorCommand(program);
 
 program.parse();
