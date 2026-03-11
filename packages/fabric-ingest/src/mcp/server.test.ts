@@ -25,6 +25,7 @@ function createTestConfig(tmpDir: string): FabricConfig {
   return {
     fabric: { data_root: tmpDir, max_storage_gb: 50 },
     akidb: { root: tmpDir, collection: "test", metric: "cosine", dimension: 128 },
+    retrieval: { default_layer: "auto", semantic_collection_suffix: "-semantic" },
     ingest: {
       sources: [],
       scan: { mode: "incremental", fingerprint: "sha256" },

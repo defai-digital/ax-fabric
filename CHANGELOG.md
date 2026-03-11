@@ -1,5 +1,24 @@
 # Changelog
 
+## v1.9.1
+
+Semantic retrieval defaults and filtering patch release.
+
+### Highlights
+
+- Added `retrieval.default_layer` and `retrieval.semantic_collection_suffix` config so raw, semantic, and fused retrieval can be selected by policy instead of only by ad hoc CLI flags
+- Updated `ax-fabric search` to respect publication-aware retrieval defaults and fall back cleanly to raw retrieval when the semantic collection is not yet ready
+- Added CLI filter flags for `--source-uri`, `--content-type`, and `--chunk-label` so published semantic artifacts can be queried with semantic-aware metadata constraints
+- Fixed semantic search result rendering to resolve source metadata through `SemanticStore`
+- Fixed raw and semantic fused retrieval to deduplicate by shared provenance rather than raw `chunk_id` only
+- Aligned default semantic publication and retrieval collection naming through the configurable semantic collection suffix
+- Added regression coverage for retrieval defaults, semantic filtering, provenance-aware rendering, and fused deduplication
+
+### Notes
+
+- `v1.9.1` completes the remaining `v1.9` retrieval-integration gaps without changing existing raw-only behavior
+- Planning artifacts in `automatosx/` remain local-only and are not part of this published patch release
+
 ## v1.9.0
 
 Semantic retrieval fusion and evaluation comparison release.

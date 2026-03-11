@@ -28,6 +28,7 @@ function createConfig(tmpDir: string): FabricConfig {
   return {
     fabric: { data_root: tmpDir, max_storage_gb: 50 },
     akidb: { root: tmpDir, collection: "e2e-test", metric: "cosine", dimension: 128 },
+    retrieval: { default_layer: "auto", semantic_collection_suffix: "-semantic" },
     ingest: {
       sources: [{ path: join(tmpDir, "docs") }],
       scan: { mode: "incremental", fingerprint: "sha256" },

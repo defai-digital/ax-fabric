@@ -69,6 +69,8 @@ describe("loadConfig", () => {
     expect(config.akidb.collection).toBe("default");
     expect(config.akidb.metric).toBe("cosine");
     expect(config.akidb.dimension).toBe(1024);
+    expect(config.retrieval.default_layer).toBe("auto");
+    expect(config.retrieval.semantic_collection_suffix).toBe("-semantic");
     expect(config.ingest.scan.mode).toBe("incremental");
     expect(config.ingest.chunking.chunk_size).toBe(2800);
     expect(config.ingest.chunking.overlap).toBe(0.15);
@@ -89,6 +91,10 @@ describe("loadConfig", () => {
         collection: "docs",
         metric: "l2",
         dimension: 768,
+      },
+      retrieval: {
+        default_layer: "fused",
+        semantic_collection_suffix: "-semantic",
       },
       ingest: {
         sources: [{ path: "/docs" }],
@@ -117,6 +123,7 @@ describe("loadConfig", () => {
     expect(config.fabric.data_root).toBe("/my/data");
     expect(config.akidb.metric).toBe("l2");
     expect(config.akidb.dimension).toBe(768);
+    expect(config.retrieval.default_layer).toBe("fused");
     expect(config.ingest.sources).toHaveLength(1);
     expect(config.ingest.sources[0]!.path).toBe("/docs");
     expect(config.ingest.scan.fingerprint).toBe("sampled");
@@ -138,6 +145,7 @@ describe("loadConfig", () => {
     expect(config.akidb.collection).toBe("wiki");
     // Other fields get defaults:
     expect(config.akidb.metric).toBe("cosine");
+    expect(config.retrieval.default_layer).toBe("auto");
     expect(config.fabric.data_root).toBe("~/.ax-fabric/data");
     expect(config.ingest.chunking.chunk_size).toBe(2800);
   });

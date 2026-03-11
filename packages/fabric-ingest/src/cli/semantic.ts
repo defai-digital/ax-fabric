@@ -286,7 +286,7 @@ export function registerSemanticCommand(program: Command): void {
           throw new Error(`Semantic bundle "${bundleId}" is not approved`);
         }
 
-        const collectionId = opts.collection ?? `${config.akidb.collection}-semantic`;
+        const collectionId = opts.collection ?? `${config.akidb.collection}${config.retrieval.semantic_collection_suffix}`;
         ensureCollection(db, config, collectionId);
         const records = await buildSemanticRecords(bundle, config, embedder);
         await db.upsertBatch(collectionId, records);

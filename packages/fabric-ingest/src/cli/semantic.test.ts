@@ -30,6 +30,10 @@ describe("semantic CLI", () => {
         metric: "cosine",
         dimension: 128,
       },
+      retrieval: {
+        default_layer: "auto",
+        semantic_collection_suffix: "-semantic",
+      },
       ingest: {
         chunking: {
           chunk_size: 512,

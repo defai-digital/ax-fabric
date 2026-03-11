@@ -28,6 +28,12 @@ export const FabricConfigSchema = z.object({
       dimension: z.number().int().positive().default(1024),
     })
     .default({}),
+  retrieval: z
+    .object({
+      default_layer: z.enum(["auto", "raw", "semantic", "fused"]).default("auto"),
+      semantic_collection_suffix: z.string().min(1).default("-semantic"),
+    })
+    .default({}),
   ingest: z
     .object({
       sources: z.array(z.object({ path: z.string() })).default([]),

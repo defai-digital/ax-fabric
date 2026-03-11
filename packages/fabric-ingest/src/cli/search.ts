@@ -9,6 +9,7 @@ import { homedir } from "node:os";
 import type { Command } from "commander";
 import { AkiDB } from "@ax-fabric/akidb";
 import type { ExplainInfo } from "@ax-fabric/akidb";
+import type { MetadataFilter } from "@ax-fabric/akidb";
 
 import { JobRegistry } from "../registry/index.js";
 import { SemanticStore } from "../semantic/index.js";
@@ -38,8 +39,12 @@ export function registerSearchCommand(program: Command): void {
     .option("--session <id>", "Session ID for assembling stored memory context")
     .option("--workflow <id>", "Workflow ID for narrowing stored memory context")
     .option("--answer", "Generate an answer from retrieved chunks (requires LLM config)")
+    .option("--layer <layer>", "Retrieval layer: auto | raw | semantic | fused")
     .option("--semantic", "Search the <collection>-semantic AkiDB collection instead of raw chunks")
     .option("--fuse", "Client-side RRF fusion across raw and semantic collections")
+    .option("--source-uri <uri>", "Filter results by metadata.source_uri")
+    .option("--content-type <type>", "Filter results by metadata.content_type")
+    .option("--chunk-label <label>", "Filter results by metadata.chunk_label")
     .action(async (query: string, opts: {
       topK: string;
       mode?: string;
@@ -48,8 +53,12 @@ export function registerSearchCommand(program: Command): void {
       session?: string;
       workflow?: string;
       answer?: boolean;
+      layer?: string;
       semantic?: boolean;
       fuse?: boolean;
+      sourceUri?: string;
+      contentType?: string;
+      chunkLabel?: string;
     }) => {
       try {
       const configPath = resolveConfigPath();
@@ -79,7 +88,7 @@ export function registerSearchCommand(program: Command): void {
 
       // Determine which collection(s) to query
       const rawCollectionId = config.akidb.collection;
-      const semanticCollectionId = `${rawCollectionId}-semantic`;
+      const semanticCollectionId = `${rawCollectionId}${config.retrieval.semantic_collection_suffix}`;
       const resultMetadataByChunkId = loadSearchMetadata(dataRoot);
 
       try {
@@ -93,8 +102,16 @@ export function registerSearchCommand(program: Command): void {
           queryVector = new Float32Array(vec0);
         }
 
-        // Determine active collection for single-collection modes
-        const activeCollectionId = opts.semantic === true ? semanticCollectionId : rawCollectionId;
+        const requestedLayer = parseRequestedLayer(opts);
+        const activeLayer = resolveRetrievalLayer({
+          requestedLayer,
+          defaultLayer: config.retrieval.default_layer,
+          dataRoot,
+          semanticCollectionId,
+          db,
+        });
+        const activeCollectionId = activeLayer === "semantic" ? semanticCollectionId : rawCollectionId;
+        const filters = buildCliFilters(opts);
 
         type RenderedResult = {
           chunkId: string;
@@ -108,7 +125,7 @@ export function registerSearchCommand(program: Command): void {
         let renderedResults: RenderedResult[] = [];
         let manifestVersionUsed: number | undefined;
 
-        if (opts.fuse === true) {
+        if (activeLayer === "fused") {
           // Client-side RRF fusion across raw and semantic collections
           const rawResult = await db.search({
             collectionId: rawCollectionId,
@@ -116,6 +133,7 @@ export function registerSearchCommand(program: Command): void {
             topK,
             mode,
             queryText: mode === "keyword" || mode === "hybrid" ? query : undefined,
+            filters,
             explain: needExplain,
           });
 
@@ -127,6 +145,7 @@ export function registerSearchCommand(program: Command): void {
               topK,
               mode,
               queryText: mode === "keyword" || mode === "hybrid" ? query : undefined,
+              filters,
               explain: needExplain,
             });
             semanticResults = semResult.results;
@@ -195,6 +214,7 @@ export function registerSearchCommand(program: Command): void {
             topK,
             mode,
             queryText: mode === "keyword" || mode === "hybrid" ? query : undefined,
+            filters,
             explain: needExplain,
           });
 
@@ -222,17 +242,25 @@ export function registerSearchCommand(program: Command): void {
             query,
             mode,
             topK,
-            collection: opts.fuse === true ? "fused" : activeCollectionId,
+            collection: activeLayer === "fused" ? "fused" : activeCollectionId,
+            layer: activeLayer,
+            filters: filters ?? null,
             manifestVersion: manifestVersionUsed,
             results: renderedResults,
           }, null, 2));
         } else {
           console.log(`\nSearch results for: "${query}"\n`);
           console.log(`  Mode:             ${mode}`);
-          if (opts.semantic === true) {
+          console.log(`  Layer:            ${activeLayer}`);
+          if (activeLayer === "semantic") {
             console.log(`  Collection:       ${semanticCollectionId}`);
-          } else if (opts.fuse === true) {
+          } else if (activeLayer === "fused") {
             console.log(`  Collection:       fused (${rawCollectionId} + ${semanticCollectionId})`);
+          } else {
+            console.log(`  Collection:       ${rawCollectionId}`);
+          }
+          if (filters) {
+            console.log(`  Filters:          ${JSON.stringify(filters)}`);
           }
           console.log(`  Manifest version: ${String(manifestVersionUsed)}`);
           console.log(`  Results:          ${String(renderedResults.length)}\n`);
@@ -242,7 +270,7 @@ export function registerSearchCommand(program: Command): void {
             const rank = String(i + 1).padStart(2, " ");
             console.log(`  ${rank}. chunk_id: ${result.chunkId}`);
             console.log(`      score:    ${result.score.toFixed(6)}`);
-            if (opts.fuse === true && result.collection) {
+            if (activeLayer === "fused" && result.collection) {
               console.log(`      collection: ${result.collection}`);
             }
             if (result.sourcePath) {
@@ -384,6 +412,103 @@ function buildChunkIndex(
   }
 
   return map;
+}
+
+function buildCliFilters(opts: {
+  sourceUri?: string;
+  contentType?: string;
+  chunkLabel?: string;
+}): MetadataFilter | undefined {
+  const filters: Record<string, string> = {};
+  if (opts.sourceUri) {
+    filters["source_uri"] = opts.sourceUri;
+  }
+  if (opts.contentType) {
+    validateContentType(opts.contentType);
+    filters["content_type"] = opts.contentType;
+  }
+  if (opts.chunkLabel) {
+    validateChunkLabel(opts.chunkLabel);
+    filters["chunk_label"] = opts.chunkLabel;
+  }
+  return Object.keys(filters).length > 0 ? filters : undefined;
+}
+
+function parseRequestedLayer(opts: {
+  layer?: string;
+  semantic?: boolean;
+  fuse?: boolean;
+}): "auto" | "raw" | "semantic" | "fused" {
+  if (opts.fuse === true) return "fused";
+  if (opts.semantic === true) return "semantic";
+  if (!opts.layer) return "auto";
+  if (opts.layer === "auto" || opts.layer === "raw" || opts.layer === "semantic" || opts.layer === "fused") {
+    return opts.layer;
+  }
+  throw new Error("--layer must be one of: auto, raw, semantic, fused");
+}
+
+function resolveRetrievalLayer(args: {
+  requestedLayer: "auto" | "raw" | "semantic" | "fused";
+  defaultLayer: "auto" | "raw" | "semantic" | "fused";
+  dataRoot: string;
+  semanticCollectionId: string;
+  db: AkiDB;
+}): "raw" | "semantic" | "fused" {
+  const desired = args.requestedLayer === "auto" ? args.defaultLayer : args.requestedLayer;
+  if (desired === "raw") return "raw";
+
+  const semanticReady = hasPublishedSemanticCollection(args.dataRoot, args.semanticCollectionId)
+    && hasCollection(args.db, args.semanticCollectionId);
+
+  if (desired === "semantic" || desired === "fused") {
+    if (!semanticReady) {
+      console.warn(`Warning: semantic collection "${args.semanticCollectionId}" is not ready — falling back to raw retrieval`);
+      return "raw";
+    }
+    return desired;
+  }
+
+  return semanticReady ? "fused" : "raw";
+}
+
+function hasCollection(db: AkiDB, collectionId: string): boolean {
+  try {
+    db.getCollection(collectionId);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function hasPublishedSemanticCollection(dataRoot: string, semanticCollectionId: string): boolean {
+  const semanticDbPath = join(dataRoot, "semantic.db");
+  if (!existsSync(semanticDbPath)) {
+    return false;
+  }
+
+  try {
+    const store = new SemanticStore(semanticDbPath);
+    try {
+      return store.listBundles().some((summary) => summary.publishedCollectionId === semanticCollectionId);
+    } finally {
+      store.close();
+    }
+  } catch {
+    return false;
+  }
+}
+
+function validateContentType(value: string): void {
+  if (!["txt", "pdf", "docx", "pptx", "xlsx", "csv", "json", "yaml"].includes(value)) {
+    throw new Error("--content-type must be one of: txt, pdf, docx, pptx, xlsx, csv, json, yaml");
+  }
+}
+
+function validateChunkLabel(value: string): void {
+  if (!["paragraph", "heading", "table", "code", "list", "text"].includes(value)) {
+    throw new Error("--chunk-label must be one of: paragraph, heading, table, code, list, text");
+  }
 }
 
 interface SearchResultMetadata {

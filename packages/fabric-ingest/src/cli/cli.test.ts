@@ -66,6 +66,10 @@ akidb:
   metric: cosine
   dimension: ${String(overrides.dimension ?? 128)}
 
+retrieval:
+  default_layer: auto
+  semantic_collection_suffix: "-semantic"
+
 ingest:
   sources:
 ${sources || "  []"}
@@ -163,6 +167,10 @@ describe("CLI commands", () => {
         collection: "test-col",
         metric: "cosine",
         dimension: 128,
+      },
+      retrieval: {
+        default_layer: "auto",
+        semantic_collection_suffix: "-semantic",
       },
       ingest: {
         sources: [] as Array<{ path: string }>,
@@ -1474,6 +1482,70 @@ describe("CLI commands", () => {
       expect(output).toContain(sourceFile);
     });
 
+    it("search uses publication-aware fused retrieval by default when semantic publication exists", async () => {
+      const sourceFile = join(sourceDir, "semantic-default-target.txt");
+      writeFileSync(
+        sourceFile,
+        "Default semantic retrieval should use fused mode once approved semantic artifacts are published.",
+        "utf-8",
+      );
+      const dbPath = join(dataRoot, "semantic.db");
+
+      (mockConfig as {
+        ingest: { sources: Array<{ path: string }> };
+        retrieval: { default_layer: string; semantic_collection_suffix: string };
+      }).ingest.sources = [{ path: sourceDir }];
+
+      const runProgram = new Command();
+      runProgram.exitOverride();
+      const runIngest = runProgram.command("ingest");
+      registerIngestRunCommand(runIngest);
+      const runLogSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+      await runProgram.parseAsync(["node", "test", "ingest", "run"]);
+      runLogSpy.mockRestore();
+
+      const semanticProgram = new Command();
+      semanticProgram.exitOverride();
+      registerSemanticCommand(semanticProgram);
+
+      await semanticProgram.parseAsync([
+        "node", "test", "semantic", "store", sourceFile, "--db", dbPath,
+      ]);
+
+      const store = new SemanticStore(dbPath);
+      const bundleId = store.listBundles()[0]!.bundleId;
+      store.close();
+
+      await semanticProgram.parseAsync([
+        "node", "test", "semantic", "approve-store", bundleId,
+        "--reviewer", "ci",
+        "--min-quality", "0.1",
+        "--duplicate-policy", "warn",
+        "--db", dbPath,
+      ]);
+
+      await semanticProgram.parseAsync([
+        "node", "test", "semantic", "publish", bundleId, "--db", dbPath,
+      ]);
+
+      db.close();
+      db = new AkiDB({ storagePath: akidbRoot });
+
+      const searchProgram = new Command();
+      searchProgram.exitOverride();
+      registerSearchCommand(searchProgram);
+
+      const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+      await searchProgram.parseAsync([
+        "node", "test", "search", "default semantic retrieval", "--top-k", "5",
+      ]);
+      const output = logSpy.mock.calls.map((c) => c.join(" ")).join("\n");
+      logSpy.mockRestore();
+
+      expect(output).toContain("Layer:            fused");
+      expect(output).toContain("Collection:       fused (test-col + test-col-semantic)");
+    });
+
     it("search --fuse deduplicates raw and semantic hits that share the same provenance", async () => {
       const sourceFile = join(sourceDir, "semantic-fuse-target.txt");
       writeFileSync(
@@ -1543,6 +1615,75 @@ describe("CLI commands", () => {
       expect(output).toContain(sourceFile);
       expect(output).toContain("collection: raw+semantic");
       expect(output.match(/chunk_id:/g)?.length ?? 0).toBe(1);
+    });
+
+    it("search filter flags are passed through for semantic retrieval", async () => {
+      const sourceFile = join(sourceDir, "semantic-filter-target.txt");
+      writeFileSync(
+        sourceFile,
+        "Semantic retrieval filters should restrict semantic results by source metadata.",
+        "utf-8",
+      );
+      const dbPath = join(dataRoot, "semantic.db");
+
+      (mockConfig as { ingest: { sources: Array<{ path: string }> } }).ingest.sources = [
+        { path: sourceDir },
+      ];
+
+      const runProgram = new Command();
+      runProgram.exitOverride();
+      const runIngest = runProgram.command("ingest");
+      registerIngestRunCommand(runIngest);
+      const runLogSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+      await runProgram.parseAsync(["node", "test", "ingest", "run"]);
+      runLogSpy.mockRestore();
+
+      const semanticProgram = new Command();
+      semanticProgram.exitOverride();
+      registerSemanticCommand(semanticProgram);
+
+      await semanticProgram.parseAsync([
+        "node", "test", "semantic", "store", sourceFile, "--db", dbPath,
+      ]);
+
+      const store = new SemanticStore(dbPath);
+      const bundleId = store.listBundles()[0]!.bundleId;
+      store.close();
+
+      await semanticProgram.parseAsync([
+        "node", "test", "semantic", "approve-store", bundleId,
+        "--reviewer", "ci",
+        "--min-quality", "0.1",
+        "--duplicate-policy", "warn",
+        "--db", dbPath,
+      ]);
+
+      await semanticProgram.parseAsync([
+        "node", "test", "semantic", "publish", bundleId, "--db", dbPath,
+      ]);
+
+      db.close();
+      db = new AkiDB({ storagePath: akidbRoot });
+
+      const searchProgram = new Command();
+      searchProgram.exitOverride();
+      registerSearchCommand(searchProgram);
+
+      const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+      await searchProgram.parseAsync([
+        "node", "test", "search",
+        "semantic retrieval filters",
+        "--semantic",
+        "--source-uri", sourceFile,
+        "--content-type", "txt",
+        "--chunk-label", "paragraph",
+      ]);
+      const output = logSpy.mock.calls.map((c) => c.join(" ")).join("\n");
+      logSpy.mockRestore();
+
+      expect(output).toContain("Layer:            semantic");
+      expect(output).toContain("\"source_uri\"");
+      expect(output).toContain(sourceFile);
     });
 
     it("eval --compare shows comparison table with both collections and Comparison", async () => {

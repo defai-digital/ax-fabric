@@ -21,6 +21,7 @@ function baseConfig(): FabricConfig {
   return {
     fabric: { data_root: "/tmp/test-data", max_storage_gb: 50 },
     akidb: { root: "/tmp/test-akidb", collection: "test", metric: "cosine", dimension: 128 },
+    retrieval: { default_layer: "auto", semantic_collection_suffix: "-semantic" },
     ingest: {
       sources: [],
       scan: { mode: "incremental", fingerprint: "sha256" },
