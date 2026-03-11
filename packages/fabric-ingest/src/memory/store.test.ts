@@ -61,4 +61,31 @@ describe("MemoryStore", () => {
     expect(store.delete(record.id)).toBe(true);
     expect(store.get(record.id)).toBeNull();
   });
+
+  it("updates an existing record when put is called with the same id", () => {
+    const store = makeStore();
+    const created = store.put({
+      id: "memory-1",
+      sessionId: "session-a",
+      kind: "short-term",
+      text: "Original text",
+    });
+
+    const updated = store.put({
+      id: "memory-1",
+      sessionId: "session-b",
+      kind: "long-term",
+      text: "Updated text",
+    });
+
+    expect(store.list()).toHaveLength(1);
+    expect(updated.id).toBe("memory-1");
+    expect(updated.createdAt).toBe(created.createdAt);
+    expect(updated.updatedAt >= created.updatedAt).toBe(true);
+    expect(store.get("memory-1")).toMatchObject({
+      sessionId: "session-b",
+      kind: "long-term",
+      text: "Updated text",
+    });
+  });
 });

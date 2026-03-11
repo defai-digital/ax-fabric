@@ -19,6 +19,14 @@ function parseKind(kind?: string): MemoryKind | undefined {
   return kind;
 }
 
+function parseLimit(limit: string): number {
+  const parsed = Number.parseInt(limit, 10);
+  if (!Number.isInteger(parsed) || parsed <= 0) {
+    throw new Error("--limit must be a positive integer");
+  }
+  return parsed;
+}
+
 export function registerMemoryCommand(program: Command): void {
   const memory = program
     .command("memory")
@@ -39,18 +47,23 @@ export function registerMemoryCommand(program: Command): void {
       kind?: string;
       json?: boolean;
     }) => {
-      const store = createStore();
-      const record = store.put({
-        sessionId: opts.session,
-        workflowId: opts.workflow,
-        kind: parseKind(opts.kind),
-        text: opts.text,
-      });
-      if (opts.json) {
-        console.log(JSON.stringify(record, null, 2));
-        return;
+      try {
+        const store = createStore();
+        const record = store.put({
+          sessionId: opts.session,
+          workflowId: opts.workflow,
+          kind: parseKind(opts.kind),
+          text: opts.text,
+        });
+        if (opts.json) {
+          console.log(JSON.stringify(record, null, 2));
+          return;
+        }
+        console.log(`Stored memory ${record.id} (${record.kind}) for session ${record.sessionId}`);
+      } catch (err) {
+        console.error("Error:", err instanceof Error ? err.message : String(err));
+        process.exit(1);
       }
-      console.log(`Stored memory ${record.id} (${record.kind}) for session ${record.sessionId}`);
     });
 
   memory
@@ -68,19 +81,24 @@ export function registerMemoryCommand(program: Command): void {
       limit: string;
       json?: boolean;
     }) => {
-      const store = createStore();
-      const records = store.list({
-        sessionId: opts.session,
-        workflowId: opts.workflow,
-        kind: parseKind(opts.kind),
-        limit: Number.parseInt(opts.limit, 10),
-      });
-      if (opts.json) {
-        console.log(JSON.stringify({ records }, null, 2));
-        return;
-      }
-      for (const record of records) {
-        console.log(`${record.id}  ${record.kind}  ${record.sessionId}  ${record.text}`);
+      try {
+        const store = createStore();
+        const records = store.list({
+          sessionId: opts.session,
+          workflowId: opts.workflow,
+          kind: parseKind(opts.kind),
+          limit: parseLimit(opts.limit),
+        });
+        if (opts.json) {
+          console.log(JSON.stringify({ records }, null, 2));
+          return;
+        }
+        for (const record of records) {
+          console.log(`${record.id}  ${record.kind}  ${record.sessionId}  ${record.text}`);
+        }
+      } catch (err) {
+        console.error("Error:", err instanceof Error ? err.message : String(err));
+        process.exit(1);
       }
     });
 
@@ -89,35 +107,45 @@ export function registerMemoryCommand(program: Command): void {
     .description("Show one memory record")
     .option("--json", "Print JSON output")
     .action((id: string, opts: { json?: boolean }) => {
-      const store = createStore();
-      const record = store.get(id);
-      if (!record) {
-        console.error(`Memory record not found: ${id}`);
+      try {
+        const store = createStore();
+        const record = store.get(id);
+        if (!record) {
+          console.error(`Memory record not found: ${id}`);
+          process.exit(1);
+        }
+        if (opts.json) {
+          console.log(JSON.stringify(record, null, 2));
+          return;
+        }
+        console.log(`${record.id} (${record.kind})`);
+        console.log(`session:   ${record.sessionId}`);
+        if (record.workflowId) {
+          console.log(`workflow:  ${record.workflowId}`);
+        }
+        console.log(`text:      ${record.text}`);
+      } catch (err) {
+        console.error("Error:", err instanceof Error ? err.message : String(err));
         process.exit(1);
       }
-      if (opts.json) {
-        console.log(JSON.stringify(record, null, 2));
-        return;
-      }
-      console.log(`${record.id} (${record.kind})`);
-      console.log(`session:   ${record.sessionId}`);
-      if (record.workflowId) {
-        console.log(`workflow:  ${record.workflowId}`);
-      }
-      console.log(`text:      ${record.text}`);
     });
 
   memory
     .command("delete <id>")
     .description("Delete one memory record")
     .action((id: string) => {
-      const store = createStore();
-      const deleted = store.delete(id);
-      if (!deleted) {
-        console.error(`Memory record not found: ${id}`);
+      try {
+        const store = createStore();
+        const deleted = store.delete(id);
+        if (!deleted) {
+          console.error(`Memory record not found: ${id}`);
+          process.exit(1);
+        }
+        console.log(`Deleted memory ${id}`);
+      } catch (err) {
+        console.error("Error:", err instanceof Error ? err.message : String(err));
         process.exit(1);
       }
-      console.log(`Deleted memory ${id}`);
     });
 
   memory
@@ -135,17 +163,22 @@ export function registerMemoryCommand(program: Command): void {
       limit: string;
       json?: boolean;
     }) => {
-      const store = createStore();
-      const assembled = store.assembleContext({
-        sessionId: opts.session,
-        workflowId: opts.workflow,
-        kind: parseKind(opts.kind),
-        limit: Number.parseInt(opts.limit, 10),
-      });
-      if (opts.json) {
-        console.log(JSON.stringify(assembled, null, 2));
-        return;
+      try {
+        const store = createStore();
+        const assembled = store.assembleContext({
+          sessionId: opts.session,
+          workflowId: opts.workflow,
+          kind: parseKind(opts.kind),
+          limit: parseLimit(opts.limit),
+        });
+        if (opts.json) {
+          console.log(JSON.stringify(assembled, null, 2));
+          return;
+        }
+        console.log(assembled.text);
+      } catch (err) {
+        console.error("Error:", err instanceof Error ? err.message : String(err));
+        process.exit(1);
       }
-      console.log(assembled.text);
     });
 }

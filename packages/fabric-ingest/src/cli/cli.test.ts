@@ -1186,5 +1186,35 @@ describe("CLI commands", () => {
       expect(assembleParsed.text).toContain("First context fact");
       expect(assembleParsed.text).toContain("Second long-term fact");
     });
+
+    it("exits with error for invalid memory --limit values", async () => {
+      const memoryProgram = new Command();
+      memoryProgram.exitOverride();
+      registerMemoryCommand(memoryProgram);
+
+      const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+      const exitSpy = vi.spyOn(process, "exit").mockImplementation((_code) => {
+        throw new Error("process.exit");
+      });
+
+      await expect(
+        memoryProgram.parseAsync([
+          "node",
+          "test",
+          "memory",
+          "list",
+          "--session",
+          "session-4",
+          "--limit",
+          "abc",
+        ]),
+      ).rejects.toThrow("process.exit");
+
+      const errOutput = errSpy.mock.calls.map((c) => c.join(" ")).join("\n");
+      errSpy.mockRestore();
+      exitSpy.mockRestore();
+
+      expect(errOutput).toContain("--limit must be a positive integer");
+    });
   });
 });

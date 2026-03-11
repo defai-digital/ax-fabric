@@ -47,17 +47,24 @@ export class MemoryStore {
   put(input: PutMemoryInput): MemoryRecord {
     const store = this.load();
     const now = new Date().toISOString();
+    const recordId = input.id ?? randomUUID();
+    const existingIndex = store.records.findIndex((record) => record.id === recordId);
+    const createdAt = existingIndex >= 0 ? store.records[existingIndex]!.createdAt : now;
     const record: MemoryRecord = {
-      id: input.id ?? randomUUID(),
+      id: recordId,
       sessionId: input.sessionId,
       workflowId: input.workflowId,
       kind: input.kind ?? "short-term",
       text: input.text,
       metadata: input.metadata,
-      createdAt: now,
+      createdAt,
       updatedAt: now,
     };
-    store.records.push(record);
+    if (existingIndex >= 0) {
+      store.records[existingIndex] = record;
+    } else {
+      store.records.push(record);
+    }
     this.save(store);
     return record;
   }
