@@ -8,6 +8,7 @@ import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { AkiDB } from "@ax-fabric/akidb";
 import { MetadataFilterSchema, type MetadataFilter, type RecordMetadata } from "@ax-fabric/contracts";
+import { DEFAULT_SEARCH_TOP_K, DEFAULT_SEARCH_MODE } from "../constants.js";
 
 export function registerAkiDbTools(server: McpServer, db: AkiDB): void {
   // ── akidb_create_collection ───────────────────────────────────────────────
@@ -108,9 +109,9 @@ export function registerAkiDbTools(server: McpServer, db: AkiDB): void {
     {
       collection_id: z.string().describe("Target collection"),
       query_vector: z.array(z.number()).describe("Query vector (Float32)"),
-      top_k: z.number().int().positive().default(10).describe("Number of results"),
+      top_k: z.number().int().positive().default(DEFAULT_SEARCH_TOP_K).describe("Number of results"),
       filters: z.record(z.unknown()).optional().describe("Metadata filters"),
-      mode: z.enum(["vector", "keyword", "hybrid"]).default("vector").optional().describe("Search mode"),
+      mode: z.enum(["vector", "keyword", "hybrid"]).default(DEFAULT_SEARCH_MODE).optional().describe("Search mode"),
       query_text: z.string().optional().describe("Query text for keyword/hybrid search"),
       explain: z.boolean().default(false).optional().describe("Include scoring breakdown"),
       ef_search: z.number().int().min(10).max(500).optional().describe("Per-query efSearch override"),

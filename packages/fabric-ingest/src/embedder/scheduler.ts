@@ -19,6 +19,7 @@
 
 import type { EmbedderProvider } from "@ax-fabric/contracts";
 import { AxFabricError } from "@ax-fabric/contracts";
+import { DEFAULT_EMBED_BATCH_SIZE } from "../constants.js";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -82,7 +83,9 @@ interface Ticket {
 }
 
 const AIMD_COOLDOWN_MS = 5_000;
-const DEFAULT_BATCH_SIZE = 64;
+const DEFAULT_BATCH_SIZE = DEFAULT_EMBED_BATCH_SIZE;
+/** Scheduler-level concurrency cap (higher than per-embedder default because the
+ *  scheduler aggregates across multiple concurrent files). */
 const DEFAULT_MAX_CONCURRENCY = 8;
 const DEFAULT_INITIAL_CONCURRENCY = 2;
 const DEFAULT_MAX_QUEUE_AGE_MS = 150;

@@ -8,6 +8,11 @@
 import { readFileSync, writeFileSync, existsSync, mkdirSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, resolve } from "node:path";
+import {
+  DEFAULT_CHUNK_SIZE,
+  DEFAULT_OVERLAP_RATIO,
+  DEFAULT_EMBED_BATCH_SIZE,
+} from "../constants.js";
 import { parse, stringify } from "yaml";
 import { z } from "zod";
 
@@ -45,8 +50,8 @@ export const FabricConfigSchema = z.object({
         .default({}),
       chunking: z
         .object({
-          chunk_size: z.number().int().positive().default(2800),
-          overlap: z.number().min(0).max(1).default(0.15),
+          chunk_size: z.number().int().positive().default(DEFAULT_CHUNK_SIZE),
+          overlap: z.number().min(0).max(1).default(DEFAULT_OVERLAP_RATIO),
           strategy: z.enum(["auto", "fixed", "markdown", "structured"]).default("auto"),
         })
         .default({}),
@@ -57,7 +62,7 @@ export const FabricConfigSchema = z.object({
       type: z.enum(["local", "http", "cloudflare", "mcp"]).default("local"),
       model_id: z.string().default("default-embed"),
       dimension: z.number().int().positive().default(128),
-      batch_size: z.number().int().positive().default(64),
+      batch_size: z.number().int().positive().default(DEFAULT_EMBED_BATCH_SIZE),
       base_url: z.string().optional(),
       api_key: z.string().optional(),
       api_key_env: z.string().optional(),

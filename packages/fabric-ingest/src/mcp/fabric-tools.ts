@@ -12,6 +12,12 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { AkiDB } from "@ax-fabric/akidb";
 import type { EmbedderProvider, Record as AkiRecord, SemanticBundle } from "@ax-fabric/contracts";
 import { MetadataFilterSchema, type MetadataFilter } from "@ax-fabric/contracts";
+import {
+  DEFAULT_CHUNK_SIZE,
+  DEFAULT_OVERLAP_RATIO,
+  DEFAULT_SEARCH_TOP_K,
+  DEFAULT_SEARCH_MODE,
+} from "../constants.js";
 
 import { Pipeline } from "../pipeline/index.js";
 import { SourceScanner } from "../scanner/index.js";
@@ -228,8 +234,8 @@ export function registerFabricTools(server: McpServer, deps: FabricToolsDeps): v
     {
       query: z.string().describe("Natural language search query"),
       collection_id: z.string().optional().describe("Target collection (default: from config)"),
-      top_k: z.number().int().positive().default(10).describe("Number of results"),
-      mode: z.enum(["vector", "keyword", "hybrid"]).default("vector").optional().describe("Search mode"),
+      top_k: z.number().int().positive().default(DEFAULT_SEARCH_TOP_K).describe("Number of results"),
+      mode: z.enum(["vector", "keyword", "hybrid"]).default(DEFAULT_SEARCH_MODE).optional().describe("Search mode"),
       filters: z.record(z.unknown()).optional().describe("Metadata filters"),
     },
     async (args) => {
@@ -530,15 +536,15 @@ export function registerFabricTools(server: McpServer, deps: FabricToolsDeps): v
     "Chunk text content into smaller pieces for embedding",
     {
       text: z.string().describe("Text to chunk"),
-      chunk_size: z.number().int().positive().default(2800).optional().describe("Max chunk size in chars"),
-      overlap: z.number().min(0).max(1).default(0.15).optional().describe("Overlap fraction"),
+      chunk_size: z.number().int().positive().default(DEFAULT_CHUNK_SIZE).optional().describe("Max chunk size in chars"),
+      overlap: z.number().min(0).max(1).default(DEFAULT_OVERLAP_RATIO).optional().describe("Overlap fraction"),
     },
     async (args) => {
       try {
         const normalizedText = normalize(args.text);
         const chunks = chunk(normalizedText, "preview", "preview", {
-          chunkSize: args.chunk_size ?? 2800,
-          overlapRatio: args.overlap ?? 0.15,
+          chunkSize: args.chunk_size ?? DEFAULT_CHUNK_SIZE,
+          overlapRatio: args.overlap ?? DEFAULT_OVERLAP_RATIO,
         });
         return {
           content: [{

@@ -31,6 +31,7 @@ import {
   stageEmbed,
   stageBuild,
 } from "./stages.js";
+import { DEFAULT_CHUNK_SIZE, DEFAULT_OVERLAP_RATIO } from "../constants.js";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -128,8 +129,8 @@ export class Pipeline {
 
     const chunkerSignature = [
       CHUNKER_VERSION,
-      `size=${String(this.chunkerOptions?.chunkSize ?? 2800)}`,
-      `overlap=${String(this.chunkerOptions?.overlapRatio ?? 0.15)}`,
+      `size=${String(this.chunkerOptions?.chunkSize ?? DEFAULT_CHUNK_SIZE)}`,
+      `overlap=${String(this.chunkerOptions?.overlapRatio ?? DEFAULT_OVERLAP_RATIO)}`,
       `strategy=${this.chunkerOptions?.strategy ?? "auto"}`,
     ].join("|");
 
@@ -164,11 +165,10 @@ export class Pipeline {
 
     // 1. Scan all source paths (async: concurrent stat + fingerprint per directory)
     const scanStart = Date.now();
-    const knownFileStates = this.registry.getKnownFileStates();
-    const knownFiles = this.registry.listFiles();
+    const knownScanStates = this.registry.getKnownScanStates();
     const scannedPerRoot = await runConcurrent(
       paths,
-      (root) => this.scanner.scanAsync(root, knownFileStates),
+      (root) => this.scanner.scanAsync(root, knownScanStates),
       PIPELINE_CONCURRENCY,
     );
     const allResults: ScanResult[] = [];
@@ -180,14 +180,12 @@ export class Pipeline {
 
     // 2. Detect changes against Job Registry
     const knownFingerprints = new Map<string, string>();
-    for (const file of knownFiles) {
-      const state = knownFileStates.get(file.sourcePath);
-      if (!state) continue;
+    for (const [sourcePath, state] of knownScanStates) {
       const fingerprint =
-        file.pipelineSignature === this.pipelineSignature
+        state.pipelineSignature === this.pipelineSignature
           ? state.fingerprint
           : `${state.fingerprint}::stale-pipeline`;
-      knownFingerprints.set(file.sourcePath, fingerprint);
+      knownFingerprints.set(sourcePath, fingerprint);
     }
     const changes = this.scanner.detectChanges(allResults, knownFingerprints);
     metrics.filesAdded = changes.added.length;

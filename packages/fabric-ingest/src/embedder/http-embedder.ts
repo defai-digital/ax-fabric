@@ -6,10 +6,11 @@
 
 import { AxFabricError } from "@ax-fabric/contracts";
 import type { EmbedderProvider } from "@ax-fabric/contracts";
-
-const DEFAULT_BATCH_SIZE = 64;
-const DEFAULT_TIMEOUT_MS = 30_000;
-const DEFAULT_MAX_CONCURRENCY = 4;
+import {
+  DEFAULT_EMBED_BATCH_SIZE as DEFAULT_BATCH_SIZE,
+  DEFAULT_EMBED_TIMEOUT_MS as DEFAULT_TIMEOUT_MS,
+  DEFAULT_EMBED_MAX_CONCURRENCY as DEFAULT_MAX_CONCURRENCY,
+} from "../constants.js";
 
 export interface HttpEmbedderOptions {
   /**

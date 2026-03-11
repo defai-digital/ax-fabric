@@ -7,6 +7,10 @@
 
 import { join } from "node:path";
 import { homedir } from "node:os";
+import { createRequire } from "node:module";
+
+const _require = createRequire(import.meta.url);
+const { version: PACKAGE_VERSION } = _require("../../package.json") as { version: string };
 
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
@@ -57,7 +61,7 @@ export function createMcpServer(options?: McpServerOptions): {
   // Create MCP server
   const server = new McpServer({
     name: "ax-fabric",
-    version: "2.0.0",
+    version: PACKAGE_VERSION,
   }, {
     capabilities: {
       tools: {},

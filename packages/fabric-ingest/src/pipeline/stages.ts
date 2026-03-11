@@ -23,6 +23,7 @@ import type { ExtractorRegistry } from "../extractor/index.js";
 import type { EmbedderProvider } from "@ax-fabric/contracts";
 import { normalize } from "../normalizer/index.js";
 import { chunk } from "../chunker/index.js";
+import { DEFAULT_CHUNK_SIZE, DEFAULT_OVERLAP_RATIO } from "../constants.js";
 import type { ChunkerOptions } from "../chunker/index.js";
 import { detectStrategy, getStrategy } from "../chunker/index.js";
 import { RecordBuilder } from "../builder/index.js";
@@ -172,8 +173,8 @@ function chunkWithStrategy(
   docVersion: string,
   options?: ChunkerOptions,
 ): ChunkItem[] {
-  const chunkSize = options?.chunkSize ?? 2800;
-  const overlapRatio = options?.overlapRatio ?? 0.15;
+  const chunkSize = options?.chunkSize ?? DEFAULT_CHUNK_SIZE;
+  const overlapRatio = options?.overlapRatio ?? DEFAULT_OVERLAP_RATIO;
   const overlap = Math.floor(chunkSize * overlapRatio);
   const strategy =
     options?.strategy === undefined || options.strategy === "auto"

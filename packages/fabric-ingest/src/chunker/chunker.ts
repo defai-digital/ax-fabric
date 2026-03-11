@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { DEFAULT_CHUNK_SIZE, DEFAULT_OVERLAP_RATIO } from "../constants.js";
 
 /** Version string for pipeline signature tracking. */
 export const CHUNKER_VERSION = "1.0.0";
@@ -25,8 +26,7 @@ export interface Chunk {
   chunkId: string;
 }
 
-const DEFAULT_CHUNK_SIZE = 2800;
-const DEFAULT_OVERLAP_RATIO = 0.15;
+export { DEFAULT_CHUNK_SIZE, DEFAULT_OVERLAP_RATIO };
 
 /**
  * Fixed-size character-based chunker with overlap.
