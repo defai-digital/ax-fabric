@@ -21,6 +21,7 @@
 
 import { AxFabricError } from "@ax-fabric/contracts";
 import type { GenerateOptions, LlmProvider } from "@ax-fabric/contracts";
+import { DEFAULT_LLM_TIMEOUT_MS } from "../constants.js";
 
 export interface HttpLlmOptions {
   /** Base URL of the chat completions API (e.g. "http://localhost:11434"). */
@@ -49,7 +50,6 @@ interface ChatCompletionResponse {
   }>;
 }
 
-const DEFAULT_TIMEOUT_MS = 60_000;
 
 export class HttpLlmProvider implements LlmProvider {
   readonly modelId: string;
@@ -64,7 +64,7 @@ export class HttpLlmProvider implements LlmProvider {
     this.baseUrl = options.baseUrl.replace(/\/+$/, "");
     this.modelId = options.modelId;
     this.apiKey = options.apiKey;
-    this.timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
+    this.timeoutMs = options.timeoutMs ?? DEFAULT_LLM_TIMEOUT_MS;
     this.defaultMaxTokens = options.maxTokens;
     this.defaultTemperature = options.temperature;
   }

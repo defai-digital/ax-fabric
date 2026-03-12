@@ -19,6 +19,10 @@ import type {
   SemanticDistillResult,
 } from "./semantic-distiller.js";
 import { SemanticDistiller } from "./semantic-distiller.js";
+import {
+  DEFAULT_LOW_QUALITY_THRESHOLD,
+  DEFAULT_SEMANTIC_APPROVAL_THRESHOLD,
+} from "../constants.js";
 
 export interface SemanticReviewOptions {
   lowQualityThreshold?: number;
@@ -30,9 +34,6 @@ export interface SemanticApprovalOptions extends SemanticReviewOptions {
   duplicatePolicy?: "warn" | "reject";
   notes?: string;
 }
-
-const DEFAULT_LOW_QUALITY_THRESHOLD = 0.6;
-const DEFAULT_APPROVAL_THRESHOLD = 0.7;
 
 export class SemanticReviewEngine {
   private readonly distiller: SemanticDistiller;
@@ -80,7 +81,7 @@ export class SemanticReviewEngine {
     bundle: SemanticBundle,
     options: SemanticApprovalOptions,
   ): SemanticBundle {
-    const minQualityScore = options.minQualityScore ?? DEFAULT_APPROVAL_THRESHOLD;
+    const minQualityScore = options.minQualityScore ?? DEFAULT_SEMANTIC_APPROVAL_THRESHOLD;
     const diagnostics = this.computeDiagnostics(
       bundle.units,
       options.lowQualityThreshold ?? DEFAULT_LOW_QUALITY_THRESHOLD,

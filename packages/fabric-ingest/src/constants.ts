@@ -81,6 +81,36 @@ export const DEFAULT_MIN_TOMBSTONES_FOR_DENSITY_CHECK = 5;
 /** Quality score below which semantic units are flagged as low quality. */
 export const DEFAULT_LOW_QUALITY_THRESHOLD = 0.6;
 
+/** Minimum quality score for auto-approval in semantic review. */
+export const DEFAULT_SEMANTIC_APPROVAL_THRESHOLD = 0.7;
+
+// ─── LLM ──────────────────────────────────────────────────────────────────────
+
+/** HTTP request timeout for LLM calls (ms). */
+export const DEFAULT_LLM_TIMEOUT_MS = 60_000;
+
+// ─── EmbeddingScheduler (AIMD) ────────────────────────────────────────────────
+
+/** Cooldown after a rate-limit or server error before concurrency increases (ms). */
+export const AIMD_COOLDOWN_MS = 5_000;
+
+/** Scheduler-level concurrency cap (aggregates across concurrent files). */
+export const DEFAULT_SCHEDULER_MAX_CONCURRENCY = 8;
+
+/** Starting concurrency for AIMD ramp-up. */
+export const DEFAULT_SCHEDULER_INITIAL_CONCURRENCY = 2;
+
+/** Max milliseconds a queued chunk waits before a partial flush fires (ms). */
+export const DEFAULT_SCHEDULER_MAX_QUEUE_AGE_MS = 150;
+
+// ─── MCP sentinels ────────────────────────────────────────────────────────────
+
+/** pipeline_signature used for records inserted directly via MCP. */
+export const MCP_PIPELINE_SIGNATURE = "mcp";
+
+/** Prefix for chunk_hash when no hash is provided via MCP. */
+export const MCP_CHUNK_ID_PREFIX = "mcp:";
+
 // ─── Orchestrator ─────────────────────────────────────────────────────────────
 
 export const DEFAULT_LOCALHOST = "127.0.0.1";

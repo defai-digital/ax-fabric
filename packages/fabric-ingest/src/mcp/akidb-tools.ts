@@ -8,7 +8,12 @@ import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { AkiDB } from "@ax-fabric/akidb";
 import { MetadataFilterSchema, type MetadataFilter, type RecordMetadata } from "@ax-fabric/contracts";
-import { DEFAULT_SEARCH_TOP_K, DEFAULT_SEARCH_MODE } from "../constants.js";
+import {
+  DEFAULT_SEARCH_TOP_K,
+  DEFAULT_SEARCH_MODE,
+  MCP_PIPELINE_SIGNATURE,
+  MCP_CHUNK_ID_PREFIX,
+} from "../constants.js";
 
 export function registerAkiDbTools(server: McpServer, db: AkiDB): void {
   // ── akidb_create_collection ───────────────────────────────────────────────
@@ -86,9 +91,9 @@ export function registerAkiDbTools(server: McpServer, db: AkiDB): void {
           chunk_id: r.chunk_id,
           doc_id: r.doc_id,
           doc_version: r.doc_version ?? "v1",
-          chunk_hash: r.chunk_hash ?? `mcp:${r.chunk_id}`,
-          pipeline_signature: r.pipeline_signature ?? "mcp",
-          embedding_model_id: r.embedding_model_id ?? "mcp",
+          chunk_hash: r.chunk_hash ?? `${MCP_CHUNK_ID_PREFIX}${r.chunk_id}`,
+          pipeline_signature: r.pipeline_signature ?? MCP_PIPELINE_SIGNATURE,
+          embedding_model_id: r.embedding_model_id ?? MCP_PIPELINE_SIGNATURE,
           vector: r.vector,
           metadata: toRecordMetadata(r.metadata),
           chunk_text: r.chunk_text,

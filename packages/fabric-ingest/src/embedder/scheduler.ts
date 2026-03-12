@@ -19,7 +19,13 @@
 
 import type { EmbedderProvider } from "@ax-fabric/contracts";
 import { AxFabricError } from "@ax-fabric/contracts";
-import { DEFAULT_EMBED_BATCH_SIZE } from "../constants.js";
+import {
+  DEFAULT_EMBED_BATCH_SIZE,
+  AIMD_COOLDOWN_MS,
+  DEFAULT_SCHEDULER_MAX_CONCURRENCY,
+  DEFAULT_SCHEDULER_INITIAL_CONCURRENCY,
+  DEFAULT_SCHEDULER_MAX_QUEUE_AGE_MS,
+} from "../constants.js";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -82,13 +88,7 @@ interface Ticket {
   reject: (e: unknown) => void;
 }
 
-const AIMD_COOLDOWN_MS = 5_000;
 const DEFAULT_BATCH_SIZE = DEFAULT_EMBED_BATCH_SIZE;
-/** Scheduler-level concurrency cap (higher than per-embedder default because the
- *  scheduler aggregates across multiple concurrent files). */
-const DEFAULT_MAX_CONCURRENCY = 8;
-const DEFAULT_INITIAL_CONCURRENCY = 2;
-const DEFAULT_MAX_QUEUE_AGE_MS = 150;
 
 // ─── EmbeddingScheduler ───────────────────────────────────────────────────────
 
@@ -125,9 +125,9 @@ export class EmbeddingScheduler implements EmbedderProvider {
     this.modelId = options.embedder.modelId;
     this.dimension = options.embedder.dimension;
     this.batchSize = options.batchSize ?? DEFAULT_BATCH_SIZE;
-    this.maxConcurrency = options.maxConcurrency ?? DEFAULT_MAX_CONCURRENCY;
-    this.currentConcurrency = options.initialConcurrency ?? DEFAULT_INITIAL_CONCURRENCY;
-    this.maxQueueAgeMs = options.maxQueueAgeMs ?? DEFAULT_MAX_QUEUE_AGE_MS;
+    this.maxConcurrency = options.maxConcurrency ?? DEFAULT_SCHEDULER_MAX_CONCURRENCY;
+    this.currentConcurrency = options.initialConcurrency ?? DEFAULT_SCHEDULER_INITIAL_CONCURRENCY;
+    this.maxQueueAgeMs = options.maxQueueAgeMs ?? DEFAULT_SCHEDULER_MAX_QUEUE_AGE_MS;
   }
 
   /**

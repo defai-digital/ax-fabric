@@ -19,6 +19,7 @@ import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js"
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import type { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
 import { parseCommandLine } from "../mcp/command.js";
+import { DEFAULT_LLM_TIMEOUT_MS } from "../constants.js";
 
 export interface McpLlmOptions {
   /** Shell command to launch the MCP server via stdio. */
@@ -34,7 +35,6 @@ export interface McpLlmOptions {
 }
 
 const DEFAULT_TOOL = "generate";
-const DEFAULT_TIMEOUT_MS = 60_000;
 
 export class McpLlmProvider implements LlmProvider {
   readonly modelId: string;
@@ -57,7 +57,7 @@ export class McpLlmProvider implements LlmProvider {
     this.mcpUrl = options.mcpUrl;
     this.mcpTool = options.mcpTool ?? DEFAULT_TOOL;
     this.modelId = options.modelId;
-    this.timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
+    this.timeoutMs = options.timeoutMs ?? DEFAULT_LLM_TIMEOUT_MS;
     this.defaultMaxTokens = options.maxTokens;
     this.defaultTemperature = options.temperature;
   }
