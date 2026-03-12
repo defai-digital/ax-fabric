@@ -312,6 +312,13 @@ async function runEvalBenchmark(args: {
           summary: semanticSummary,
         }
         : null;
+      const compare = semanticSummary && semantic
+        ? {
+          delta: buildEvalDelta(rawSummary, semanticSummary),
+          raw,
+          semantic,
+        }
+        : null;
 
       return {
         benchmark: "eval",
@@ -323,8 +330,9 @@ async function runEvalBenchmark(args: {
         semantic,
         passes: {
           raw,
-          ...(semantic ? { compare: semantic, semantic } : {}),
+          ...(semantic ? { semantic, compare } : {}),
         },
+        delta: compare?.delta ?? null,
       };
     } finally {
       registry.close();
@@ -644,5 +652,23 @@ function toEvalSummaryEntry(total: { cases: number; hits: number }) {
     cases: total.cases,
     hitAtK: total.hits,
     hitRate: total.cases > 0 ? total.hits / total.cases : 0,
+  };
+}
+
+function buildEvalDelta(raw: EvalPassSummary, semantic: EvalPassSummary) {
+  return {
+    vector: diffEvalSummary(raw.vector, semantic.vector),
+    keyword: diffEvalSummary(raw.keyword, semantic.keyword),
+    hybrid: diffEvalSummary(raw.hybrid, semantic.hybrid),
+  };
+}
+
+function diffEvalSummary(
+  raw: EvalPassSummary["vector"],
+  semantic: EvalPassSummary["vector"],
+) {
+  return {
+    deltaHit: semantic.hitAtK - raw.hitAtK,
+    deltaRate: semantic.hitRate - raw.hitRate,
   };
 }

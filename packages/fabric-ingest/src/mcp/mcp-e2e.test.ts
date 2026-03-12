@@ -370,6 +370,71 @@ describe("MCP E2E", () => {
     expect(inspected.publication?.collectionId).toBe("e2e-test-semantic");
   });
 
+  it("replaces a published semantic bundle with a single manifest advance through MCP", async () => {
+    const filePath = join(docsDir, "semantic-replace.txt");
+    writeFileSync(filePath, "Shared semantic document for MCP replace flow.");
+
+    const firstStore = await client.callTool({
+      name: "fabric_semantic_store_bundle",
+      arguments: {
+        file_path: filePath,
+        low_quality_threshold: 0.5,
+      },
+    });
+    const firstStored = JSON.parse((firstStore.content as Array<{ text: string }>)[0]!.text) as { bundle_id: string };
+    await client.callTool({
+      name: "fabric_semantic_approve_bundle",
+      arguments: {
+        bundle_id: firstStored.bundle_id,
+        reviewer: "mcp-tester",
+        min_quality_score: 0.5,
+        duplicate_policy: "warn",
+      },
+    });
+    const firstPublish = await client.callTool({
+      name: "fabric_semantic_publish_bundle",
+      arguments: {
+        bundle_id: firstStored.bundle_id,
+      },
+    });
+    const firstPublished = JSON.parse((firstPublish.content as Array<{ text: string }>)[0]!.text) as {
+      manifest_version: number;
+    };
+
+    writeFileSync(filePath, "Shared semantic document for MCP replace flow with updated content.");
+
+    const secondStore = await client.callTool({
+      name: "fabric_semantic_store_bundle",
+      arguments: {
+        file_path: filePath,
+        low_quality_threshold: 0.5,
+      },
+    });
+    const secondStored = JSON.parse((secondStore.content as Array<{ text: string }>)[0]!.text) as { bundle_id: string };
+    await client.callTool({
+      name: "fabric_semantic_approve_bundle",
+      arguments: {
+        bundle_id: secondStored.bundle_id,
+        reviewer: "mcp-tester",
+        min_quality_score: 0.5,
+        duplicate_policy: "warn",
+      },
+    });
+    const secondPublish = await client.callTool({
+      name: "fabric_semantic_publish_bundle",
+      arguments: {
+        bundle_id: secondStored.bundle_id,
+        replace_existing: true,
+      },
+    });
+    expect(secondPublish.isError).toBeFalsy();
+    const secondPublished = JSON.parse((secondPublish.content as Array<{ text: string }>)[0]!.text) as {
+      manifest_version: number;
+    };
+
+    expect(secondPublished.manifest_version).toBe(firstPublished.manifest_version + 1);
+  });
+
   it("fabric_ingest_diff returns change detection results", async () => {
     // Write a test file to scan
     writeFileSync(join(docsDir, "test.txt"), "content for diff test", "utf-8");

@@ -106,14 +106,22 @@ describe("benchmark CLI", () => {
         corpusDocs: number;
         cases: number;
         compareSemantic: boolean;
-        passes: Record<string, unknown>;
+        passes: {
+          raw?: unknown;
+          semantic?: unknown;
+          compare?: { delta?: Record<string, unknown> };
+        };
+        delta?: Record<string, unknown> | null;
       };
       expect(parsed.benchmark).toBe("eval");
       expect(parsed.corpusDocs).toBe(12);
       expect(parsed.cases).toBe(4);
       expect(parsed.compareSemantic).toBe(true);
       expect(parsed.passes).toHaveProperty("raw");
+      expect(parsed.passes).toHaveProperty("semantic");
       expect(parsed.passes).toHaveProperty("compare");
+      expect(parsed.passes.compare?.delta).toHaveProperty("hybrid");
+      expect(parsed.delta).toHaveProperty("hybrid");
     } finally {
       logSpy.mockRestore();
     }

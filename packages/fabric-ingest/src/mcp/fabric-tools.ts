@@ -4,19 +4,20 @@
  * Ingestion, semantic workflow, search, config, and memory tools.
  */
 
-import { createHash } from "node:crypto";
 import { join } from "node:path";
 
 import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { AkiDB } from "@ax-fabric/akidb";
-import type { EmbedderProvider, Record as AkiRecord, SemanticBundle } from "@ax-fabric/contracts";
+import type { EmbedderProvider, SemanticBundle } from "@ax-fabric/contracts";
 import { MetadataFilterSchema, type MetadataFilter } from "@ax-fabric/contracts";
 import {
   DEFAULT_CHUNK_SIZE,
   DEFAULT_OVERLAP_RATIO,
   DEFAULT_SEARCH_TOP_K,
   DEFAULT_SEARCH_MODE,
+  DEFAULT_LOW_QUALITY_THRESHOLD,
+  DEFAULT_SEMANTIC_APPROVAL_THRESHOLD,
 } from "../constants.js";
 
 import { Pipeline } from "../pipeline/index.js";
@@ -31,7 +32,14 @@ import { MemoryStore } from "../memory/index.js";
 import { resolveDataRoot, type FabricConfig } from "../cli/config-loader.js";
 import { NORMALIZER_VERSION } from "../normalizer/index.js";
 import { RecordBuilder } from "../builder/index.js";
-import { SemanticReviewEngine, SemanticStore } from "../semantic/index.js";
+import {
+  SemanticReviewEngine,
+  SemanticStore,
+  buildSemanticRecords,
+  ensureSemanticCollection,
+  semanticChunkIds,
+  semanticPipelineSignature,
+} from "../semantic/index.js";
 
 export interface FabricToolsDeps {
   db: AkiDB;
@@ -305,7 +313,7 @@ export function registerFabricTools(server: McpServer, deps: FabricToolsDeps): v
     "Create a semantic bundle from a file and store it in the canonical semantic store",
     {
       file_path: z.string().describe("Path to the source file"),
-      low_quality_threshold: z.number().min(0).max(1).optional().default(0.6).describe("Flag units below this score"),
+      low_quality_threshold: z.number().min(0).max(1).optional().default(DEFAULT_LOW_QUALITY_THRESHOLD).describe("Flag units below this score"),
       strategy: z.enum(["auto", "fixed", "markdown", "structured"]).optional().describe("Chunking strategy override"),
     },
     async (args) => {
@@ -406,7 +414,7 @@ export function registerFabricTools(server: McpServer, deps: FabricToolsDeps): v
     {
       bundle_id: z.string().describe("Semantic bundle ID"),
       reviewer: z.string().min(1).describe("Reviewer identity"),
-      min_quality_score: z.number().min(0).max(1).optional().default(0.7).describe("Minimum quality score"),
+      min_quality_score: z.number().min(0).max(1).optional().default(DEFAULT_SEMANTIC_APPROVAL_THRESHOLD).describe("Minimum quality score"),
       duplicate_policy: z.enum(["warn", "reject"]).optional().default("reject").describe("Duplicate handling policy"),
       notes: z.string().optional().describe("Optional review notes"),
     },
@@ -781,22 +789,6 @@ function toMetadataFilter(value: Record<string, unknown> | undefined): MetadataF
   return result.data;
 }
 
-function ensureCollection(db: AkiDB, config: FabricConfig, collectionId: string): void {
-  try {
-    db.getCollection(collectionId);
-  } catch (error) {
-    if (!(error instanceof Error && error.message.includes("not found"))) {
-      throw error;
-    }
-    db.createCollection({
-      collectionId,
-      dimension: config.akidb.dimension,
-      metric: config.akidb.metric,
-      embeddingModelId: config.embedder.model_id,
-    });
-  }
-}
-
 async function publishSemanticBundle(args: {
   bundleId: string;
   bundle: SemanticBundle;
@@ -824,10 +816,13 @@ async function publishSemanticBundle(args: {
     if (!existingBundle) {
       throw new Error(`Published semantic bundle "${existingPublication.bundleId}" not found in canonical store`);
     }
-    await revokeSemanticBundle(existingPublication.bundleId, existingBundle, args.collectionId, args.store, args.db, args.config);
+    const oldChunkIds = semanticChunkIds(existingBundle);
+    if (oldChunkIds.length > 0) {
+      args.db.deleteChunks(args.collectionId, oldChunkIds, "manual_revoke");
+    }
   }
 
-  ensureCollection(args.db, args.config, args.collectionId);
+  ensureSemanticCollection(args.db, args.config, args.collectionId);
   const records = await buildSemanticRecords(args.bundle, args.config, args.embedder);
   await args.db.upsertBatch(args.collectionId, records);
   const manifest = await args.db.publish(args.collectionId, {
@@ -839,6 +834,9 @@ async function publishSemanticBundle(args: {
     manifestVersion: manifest.version,
     publishedAt: new Date().toISOString(),
   });
+  if (existingPublication && existingPublication.bundleId !== args.bundle.bundle_id) {
+    args.store.clearPublished(existingPublication.bundleId);
+  }
   return manifest;
 }
 
@@ -859,55 +857,4 @@ async function revokeSemanticBundle(
     });
   }
   store.clearPublished(bundleId);
-}
-
-async function buildSemanticRecords(
-  bundle: SemanticBundle,
-  config: FabricConfig,
-  embedder: EmbedderProvider,
-): Promise<AkiRecord[]> {
-  const texts = bundle.units.map((unit) => semanticUnitText(unit));
-  const vectors = await embedder.embed(texts);
-  const createdAt = new Date().toISOString();
-
-  return bundle.units.map((unit, index) => {
-    const text = texts[index]!;
-    const vector = vectors[index]!;
-    const span = unit.source_spans[0]!;
-    return {
-      chunk_id: `semantic:${unit.unit_id}`,
-      doc_id: bundle.doc_id,
-      doc_version: bundle.doc_version,
-      chunk_hash: digest(text),
-      pipeline_signature: semanticPipelineSignature(bundle),
-      embedding_model_id: config.embedder.model_id,
-      vector,
-      metadata: {
-        source_uri: span.source_uri,
-        content_type: span.content_type,
-        page_range: span.page_range,
-        offset: span.offset_start,
-        table_ref: span.table_ref,
-        chunk_label: span.chunk_label,
-        created_at: createdAt,
-      },
-      chunk_text: text,
-    };
-  });
-}
-
-function semanticUnitText(unit: SemanticBundle["units"][number]): string {
-  return `${unit.title}\n\n${unit.summary}\n\n${unit.answer}`;
-}
-
-function semanticChunkIds(bundle: SemanticBundle): string[] {
-  return bundle.units.map((unit) => `semantic:${unit.unit_id}`);
-}
-
-function semanticPipelineSignature(bundle: SemanticBundle): string {
-  return `semantic-store:${bundle.distill_strategy}:${bundle.review?.status ?? "pending"}`;
-}
-
-function digest(input: string): string {
-  return createHash("sha256").update(input, "utf8").digest("hex");
 }
