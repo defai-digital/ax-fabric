@@ -40,6 +40,7 @@ import {
   semanticChunkIds,
   semanticPipelineSignature,
 } from "../semantic/index.js";
+import { executeSearch } from "../retrieval/index.js";
 
 export interface FabricToolsDeps {
   db: AkiDB;
@@ -238,18 +239,22 @@ export function registerFabricTools(server: McpServer, deps: FabricToolsDeps): v
 
   server.tool(
     "fabric_search",
-    "Search for documents by semantic similarity or keyword/hybrid retrieval",
+    "Search for documents by semantic similarity or keyword/hybrid retrieval. Supports layer-based search: raw (chunks only), semantic (published bundles only), fused (both combined via Reciprocal Rank Fusion), or auto (fused if semantic bundles exist, raw otherwise).",
     {
       query: z.string().describe("Natural language search query"),
       collection_id: z.string().optional().describe("Target collection (default: from config)"),
       top_k: z.number().int().positive().default(DEFAULT_SEARCH_TOP_K).describe("Number of results"),
       mode: z.enum(["vector", "keyword", "hybrid"]).default(DEFAULT_SEARCH_MODE).optional().describe("Search mode"),
+      layer: z.enum(["auto", "raw", "semantic", "fused"]).default("auto").optional().describe("Search layer: auto (fused if semantic bundles exist, raw otherwise), raw (chunks only), semantic (published bundles only), fused (both combined via RRF)"),
       filters: z.record(z.unknown()).optional().describe("Metadata filters"),
     },
     async (args) => {
       try {
         const collectionId = args.collection_id ?? config.akidb.collection;
+        const semanticSuffix = config.retrieval?.semantic_collection_suffix ?? "-semantic";
+        const dataRoot = resolveDataRoot(config);
 
+        // Embed the query (same as before — executeSearch expects a pre-computed vector)
         let queryVector = new Float32Array(0);
         if (args.mode !== "keyword") {
           const vectors = await embedder.embed([args.query]);
@@ -260,44 +265,39 @@ export function registerFabricTools(server: McpServer, deps: FabricToolsDeps): v
           queryVector = new Float32Array(vec0);
         }
 
-        const result = await db.search({
-          collectionId,
+        // Use executeSearch — handles layer resolution, fused RRF, semantic metadata,
+        // registry lookup, and graceful fallback to raw when semantic is unavailable
+        const result = await executeSearch({
+          db,
+          dataRoot,
+          rawCollectionId: collectionId,
+          semanticCollectionId: `${collectionId}${semanticSuffix}`,
+          requestedLayer: (args.layer ?? "auto") as "auto" | "raw" | "semantic" | "fused",
+          defaultLayer: config.retrieval?.default_layer ?? "auto",
           queryVector,
           topK: args.top_k,
-          filters: toMetadataFilter(args.filters),
-          mode: args.mode as "vector" | "keyword" | "hybrid" | undefined,
+          mode: (args.mode ?? "vector") as "vector" | "keyword" | "hybrid",
           queryText: args.query,
+          filters: toMetadataFilter(args.filters),
           explain: true,
+          warn: (msg) => console.warn(`[fabric_search] ${msg}`),
         });
 
-        // Build chunk → source path lookup from the registry
-        let filesByChunkId: Map<string, string> | null = null;
-        let _searchRegistry: JobRegistry | null = null;
-        try {
-          _searchRegistry = new JobRegistry(deps.registryDbPath);
-          filesByChunkId = new Map();
-          for (const file of _searchRegistry.listFiles()) {
-            for (const chunkId of file.chunkIds) {
-              filesByChunkId.set(chunkId, file.sourcePath);
-            }
-          }
-        } catch {
-          // Registry not available — continue without source info
-        } finally {
-          _searchRegistry?.close();
-        }
-
+        // Map to response format — preserve existing field names for backward compatibility
         const enrichedResults = result.results.map((r) => ({
           chunkId: r.chunkId,
           score: r.score,
-          source: filesByChunkId?.get(r.chunkId) ?? null,
+          source: r.sourcePath ?? null,
           content: r.explain?.chunkPreview ?? null,
+          semanticTitle: r.semanticTitle ?? undefined,
+          qualityScore: r.semanticQualityScore ?? undefined,
+          matchedLayers: r.matchedLayers,
         }));
 
         return {
           content: [{
             type: "text" as const,
-            text: JSON.stringify({ results: enrichedResults }, null, 2),
+            text: JSON.stringify({ layer: result.layer, results: enrichedResults }, null, 2),
           }],
         };
       } catch (e) {
