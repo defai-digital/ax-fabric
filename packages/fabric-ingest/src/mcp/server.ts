@@ -7,10 +7,7 @@
 
 import { join } from "node:path";
 import { homedir } from "node:os";
-import { createRequire } from "node:module";
-
-const _require = createRequire(import.meta.url);
-const { version: PACKAGE_VERSION } = _require("../../package.json") as { version: string };
+const PACKAGE_VERSION = "2.0.0";
 
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
