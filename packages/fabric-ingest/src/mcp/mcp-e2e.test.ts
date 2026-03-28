@@ -19,6 +19,7 @@ import { registerAkiDbTools } from "./akidb-tools.js";
 import { registerFabricTools } from "./fabric-tools.js";
 import { registerResources } from "./resources.js";
 import { MockEmbedder } from "../embedder/index.js";
+import { SemanticStore } from "../semantic/index.js";
 import type { FabricConfig } from "../cli/config-loader.js";
 import type { EmbedderProvider } from "@ax-fabric/contracts";
 
@@ -300,6 +301,7 @@ describe("MCP E2E", () => {
       expect(result.isError).toBeFalsy();
       const data = JSON.parse((result.content as Array<{ text: string }>)[0]!.text);
       expect(data.results).toHaveLength(1);
+      expect(data.results[0]).toHaveProperty("source");
     } finally {
       keywordDb.close();
       rmSync(keywordTmpDir, { recursive: true, force: true });
@@ -347,6 +349,7 @@ describe("MCP E2E", () => {
       name: "fabric_semantic_publish_bundle",
       arguments: {
         bundle_id: stored.bundle_id,
+        actor: "mcp-tester",
       },
     });
     expect(publishResult.isError).toBeFalsy();
@@ -368,6 +371,12 @@ describe("MCP E2E", () => {
       publication: { collectionId: string } | null;
     };
     expect(inspected.publication?.collectionId).toBe("e2e-test-semantic");
+
+    const auditStore = new SemanticStore(join(tmpDir, "semantic.db"));
+    const publicationLog = auditStore.listPublicationLog({ bundleId: stored.bundle_id });
+    expect(publicationLog).toHaveLength(1);
+    expect(publicationLog[0]!.actor).toBe("mcp-tester");
+    auditStore.close();
   });
 
   it("replaces a published semantic bundle with a single manifest advance through MCP", async () => {

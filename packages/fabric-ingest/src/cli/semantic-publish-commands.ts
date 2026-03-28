@@ -20,6 +20,7 @@ export function registerSemanticPublishCommands(semantic: Command): void {
     .description("Publish an approved stored semantic bundle into AkiDB")
     .option("--db <path>", "Override semantic.db path")
     .option("--json", "Print machine-readable JSON output")
+    .option("--actor <name>", "Actor identity to attach to the publication audit trail")
     .option("--collection <id>", "Target AkiDB collection (default: <config.collection>-semantic)")
     .option("--replace", "Replace the currently published bundle for the same doc and collection")
     .action(async (bundleId: string, opts: PublishOptions) => {
@@ -45,6 +46,7 @@ export function registerSemanticPublishCommands(semantic: Command): void {
           collectionId,
           replaceExisting: opts.replace === true,
           action: "publish",
+          actor: resolvePublicationActor(opts.actor),
         });
         if (opts.json) {
           console.log(JSON.stringify({
@@ -68,6 +70,7 @@ export function registerSemanticPublishCommands(semantic: Command): void {
     .description("Remove a published semantic bundle from its AkiDB collection and clear publication state")
     .option("--db <path>", "Override semantic.db path")
     .option("--json", "Print machine-readable JSON output")
+    .option("--actor <name>", "Actor identity to attach to the publication audit trail")
     .action(async (bundleId: string, opts: UnpublishOptions) => {
       const runtime = loadFabricRuntime();
       const store = openRuntimeSemanticStore(runtime, opts.db);
@@ -89,6 +92,7 @@ export function registerSemanticPublishCommands(semantic: Command): void {
           store,
           db,
           config: runtime.config,
+          actor: resolvePublicationActor(opts.actor),
         });
         if (opts.json) {
           console.log(JSON.stringify({
@@ -118,6 +122,7 @@ export function registerSemanticPublishCommands(semantic: Command): void {
     .description("Republish an already published semantic bundle into its current AkiDB collection")
     .option("--db <path>", "Override semantic.db path")
     .option("--json", "Print machine-readable JSON output")
+    .option("--actor <name>", "Actor identity to attach to the publication audit trail")
     .action(async (bundleId: string, opts: UnpublishOptions) => {
       const runtime = loadFabricRuntime();
       const { config } = runtime;
@@ -144,6 +149,7 @@ export function registerSemanticPublishCommands(semantic: Command): void {
           collectionId,
           replaceExisting: true,
           action: "republish",
+          actor: resolvePublicationActor(opts.actor),
         });
         if (opts.json) {
           console.log(JSON.stringify({
@@ -167,6 +173,7 @@ export function registerSemanticPublishCommands(semantic: Command): void {
     .description("Rollback the active published semantic bundle for the same document to a specific approved bundle")
     .option("--db <path>", "Override semantic.db path")
     .option("--json", "Print machine-readable JSON output")
+    .option("--actor <name>", "Actor identity to attach to the publication audit trail")
     .option("--collection <id>", "Target AkiDB collection (default: <config.collection>-semantic)")
     .action(async (bundleId: string, opts: PublishOptions) => {
       const runtime = loadFabricRuntime();
@@ -191,6 +198,7 @@ export function registerSemanticPublishCommands(semantic: Command): void {
           collectionId,
           replaceExisting: true,
           action: "rollback",
+          actor: resolvePublicationActor(opts.actor),
         });
         if (opts.json) {
           console.log(JSON.stringify({
@@ -213,6 +221,7 @@ export function registerSemanticPublishCommands(semantic: Command): void {
 interface PublishOptions {
   db?: string;
   json?: boolean;
+  actor?: string;
   collection?: string;
   replace?: boolean;
 }
@@ -220,4 +229,13 @@ interface PublishOptions {
 interface UnpublishOptions {
   db?: string;
   json?: boolean;
+  actor?: string;
+}
+
+function resolvePublicationActor(actor?: string): string {
+  if (actor && actor.trim().length > 0) {
+    return actor.trim();
+  }
+  const user = process.env["USER"] ?? process.env["USERNAME"];
+  return user && user.trim().length > 0 ? `cli:${user.trim()}` : "cli";
 }

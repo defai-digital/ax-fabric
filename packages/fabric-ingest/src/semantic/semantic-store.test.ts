@@ -436,4 +436,47 @@ describe("SemanticStore", () => {
       rmSync(workdir, { recursive: true, force: true });
     }
   });
+
+  it("exports an audit trail including publication log entries", async () => {
+    const workdir = mkdtempSync(join(tmpdir(), "semantic-store-audit-export-"));
+    const dbPath = join(workdir, "semantic.db");
+    const filePath = join(workdir, "guide.txt");
+    writeFileSync(filePath, "Semantic audit export should include bundle summaries and publication log entries.", "utf8");
+
+    try {
+      const engine = new SemanticReviewEngine();
+      const bundle = await engine.createBundle(filePath);
+      const approved = engine.approveBundle(bundle, {
+        reviewer: "akira",
+        minQualityScore: 0.1,
+        duplicatePolicy: "warn",
+      });
+
+      const store = new SemanticStore(dbPath);
+      store.upsertBundle(approved);
+      store.markPublished(bundle.bundle_id, {
+        collectionId: "default-semantic",
+        manifestVersion: 4,
+        publishedAt: new Date().toISOString(),
+      });
+      store.logPublicationEvent({
+        bundleId: bundle.bundle_id,
+        collectionId: "default-semantic",
+        action: "publish",
+        manifestVersion: 4,
+        actor: "test-suite",
+      });
+
+      const audit = store.exportAuditTrail();
+      expect(audit.exportedAt).toBeTruthy();
+      expect(audit.bundles).toHaveLength(1);
+      expect(audit.bundles[0]!.bundleId).toBe(bundle.bundle_id);
+      expect(audit.publicationLog).toHaveLength(1);
+      expect(audit.publicationLog[0]!.action).toBe("publish");
+      expect(audit.publicationLog[0]!.actor).toBe("test-suite");
+      store.close();
+    } finally {
+      rmSync(workdir, { recursive: true, force: true });
+    }
+  });
 });

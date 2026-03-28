@@ -170,6 +170,7 @@ export function registerSemanticTools(server: McpServer, deps: SemanticToolsDeps
       bundle_id: z.string().describe("Semantic bundle ID"),
       collection_id: z.string().optional().describe("Override semantic collection ID"),
       replace_existing: z.boolean().optional().default(false).describe("Replace the active bundle for the same doc"),
+      actor: z.string().min(1).optional().describe("Actor identity to attach to the publication audit trail"),
     },
     async (args) => {
       try {
@@ -189,6 +190,7 @@ export function registerSemanticTools(server: McpServer, deps: SemanticToolsDeps
             config,
             collectionId,
             replaceExisting: args.replace_existing === true,
+            actor: args.actor ?? "mcp",
           });
           return {
             content: [{

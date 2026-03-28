@@ -30,6 +30,18 @@ export async function publishSemanticBundleToCollection(args: {
   }
 
   const existingPublication = args.store.findPublishedBundleForDoc(args.bundle.doc_id, args.collectionId);
+  if ((args.action ?? "publish") === "rollback") {
+    if (!existingPublication) {
+      throw new Error(
+        `Semantic collection "${args.collectionId}" has no active published bundle for doc_id "${args.bundle.doc_id}" to roll back`,
+      );
+    }
+    if (existingPublication.bundleId === args.bundle.bundle_id) {
+      throw new Error(
+        `Semantic bundle "${args.bundleId}" is already the active published bundle for doc_id "${args.bundle.doc_id}"`,
+      );
+    }
+  }
   if (existingPublication && existingPublication.bundleId !== args.bundle.bundle_id) {
     if (args.replaceExisting !== true) {
       throw new Error(

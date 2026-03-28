@@ -560,4 +560,138 @@ describe("semantic CLI", () => {
       rmSync(workdir, { recursive: true, force: true });
     }
   });
+
+  it("refuses rollback when there is no active published bundle for the document", async () => {
+    const workdir = mkdtempSync(join(tmpdir(), "semantic-cli-rollback-missing-"));
+    const filePath = join(workdir, "guide.txt");
+    const dataRoot = join(workdir, "data");
+    writeFileSync(
+      filePath,
+      "Rollback should require an active published bundle for the same document.",
+      "utf8",
+    );
+    mockConfig = {
+      ...mockConfig,
+      fabric: { data_root: dataRoot, max_storage_gb: 50 },
+      akidb: { root: join(dataRoot, "akidb"), collection: "test-col", metric: "cosine", dimension: 128 },
+    };
+
+    const program = makeProgram();
+
+    try {
+      await program.parseAsync(["node", "test", "semantic", "store", filePath]);
+      const store = new SemanticStore(join(dataRoot, "semantic.db"));
+      const bundleId = store.listBundles()[0]!.bundleId;
+      store.close();
+
+      await program.parseAsync([
+        "node", "test", "semantic", "approve-store", bundleId,
+        "--reviewer", "akira",
+        "--min-quality", "0.5",
+        "--duplicate-policy", "warn",
+      ]);
+
+      await expect(
+        program.parseAsync(["node", "test", "semantic", "rollback", bundleId]),
+      ).rejects.toThrow(/has no active published bundle/);
+    } finally {
+      rmSync(workdir, { recursive: true, force: true });
+    }
+  });
+
+  it("records publication audit actor from CLI lifecycle commands", async () => {
+    const workdir = mkdtempSync(join(tmpdir(), "semantic-cli-audit-actor-"));
+    const filePath = join(workdir, "guide.txt");
+    const dataRoot = join(workdir, "data");
+    writeFileSync(
+      filePath,
+      "CLI publication commands should persist actor identity into the audit trail.",
+      "utf8",
+    );
+    mockConfig = {
+      ...mockConfig,
+      fabric: { data_root: dataRoot, max_storage_gb: 50 },
+      akidb: { root: join(dataRoot, "akidb"), collection: "test-col", metric: "cosine", dimension: 128 },
+    };
+
+    const program = makeProgram();
+    const actor = "akira-cli";
+
+    try {
+      await program.parseAsync(["node", "test", "semantic", "store", filePath]);
+      const store = new SemanticStore(join(dataRoot, "semantic.db"));
+      const bundleId = store.listBundles()[0]!.bundleId;
+      store.close();
+
+      await program.parseAsync([
+        "node", "test", "semantic", "approve-store", bundleId,
+        "--reviewer", "akira",
+        "--min-quality", "0.5",
+        "--duplicate-policy", "warn",
+      ]);
+      await program.parseAsync([
+        "node", "test", "semantic", "publish", bundleId,
+        "--actor", actor,
+      ]);
+
+      const auditStore = new SemanticStore(join(dataRoot, "semantic.db"));
+      const log = auditStore.listPublicationLog({ bundleId });
+      expect(log).toHaveLength(1);
+      expect(log[0]!.action).toBe("publish");
+      expect(log[0]!.actor).toBe(actor);
+      auditStore.close();
+    } finally {
+      rmSync(workdir, { recursive: true, force: true });
+    }
+  });
+
+  it("exports the semantic governance audit trail as machine-readable JSON", async () => {
+    const workdir = mkdtempSync(join(tmpdir(), "semantic-cli-audit-export-"));
+    const filePath = join(workdir, "guide.txt");
+    const dataRoot = join(workdir, "data");
+    writeFileSync(
+      filePath,
+      "Semantic audit export should include bundle summaries and publication log entries.",
+      "utf8",
+    );
+    mockConfig = {
+      ...mockConfig,
+      fabric: { data_root: dataRoot, max_storage_gb: 50 },
+      akidb: { root: join(dataRoot, "akidb"), collection: "test-col", metric: "cosine", dimension: 128 },
+    };
+
+    const program = makeProgram();
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+
+    try {
+      await program.parseAsync(["node", "test", "semantic", "store", filePath]);
+      const store = new SemanticStore(join(dataRoot, "semantic.db"));
+      const bundleId = store.listBundles()[0]!.bundleId;
+      store.close();
+
+      await program.parseAsync([
+        "node", "test", "semantic", "approve-store", bundleId,
+        "--reviewer", "akira",
+        "--min-quality", "0.5",
+        "--duplicate-policy", "warn",
+      ]);
+      await program.parseAsync([
+        "node", "test", "semantic", "publish", bundleId,
+        "--actor", "audit-cli",
+      ]);
+      await program.parseAsync(["node", "test", "semantic", "audit-export"]);
+
+      const jsonOutput = logSpy.mock.calls[logSpy.mock.calls.length - 1]![0] as string;
+      const audit = JSON.parse(jsonOutput) as {
+        bundles: Array<{ bundleId: string }>;
+        publicationLog: Array<{ action: string; actor: string | null }>;
+      };
+
+      expect(audit.bundles.map((entry) => entry.bundleId)).toContain(bundleId);
+      expect(audit.publicationLog.some((entry) => entry.action === "publish" && entry.actor === "audit-cli")).toBe(true);
+    } finally {
+      logSpy.mockRestore();
+      rmSync(workdir, { recursive: true, force: true });
+    }
+  });
 });

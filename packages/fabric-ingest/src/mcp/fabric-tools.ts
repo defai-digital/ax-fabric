@@ -21,9 +21,9 @@ import {
 import { createDefaultRegistry } from "../extractor/index.js";
 import { normalize } from "../normalizer/index.js";
 import { chunk } from "../chunker/index.js";
-import { JobRegistry } from "../registry/index.js";
 import { MemoryStore } from "../memory/index.js";
 import { resolveDataRoot, type FabricConfig } from "../cli/config-loader.js";
+import { executeSearch } from "../retrieval/index.js";
 import { registerIngestTools } from "./ingest-tools.js";
 import { registerSemanticTools } from "./semantic-tools.js";
 
@@ -57,6 +57,7 @@ export function registerFabricTools(server: McpServer, deps: FabricToolsDeps): v
     async (args) => {
       try {
         const collectionId = args.collection_id ?? config.akidb.collection;
+        const dataRoot = resolveDataRoot(config);
 
         let queryVector = new Float32Array(0);
         if (args.mode !== "keyword") {
@@ -68,37 +69,25 @@ export function registerFabricTools(server: McpServer, deps: FabricToolsDeps): v
           queryVector = new Float32Array(vec0);
         }
 
-        const result = await db.search({
-          collectionId,
+        const result = await executeSearch({
+          db,
+          dataRoot,
+          rawCollectionId: collectionId,
+          semanticCollectionId: `${collectionId}${config.retrieval.semantic_collection_suffix}`,
+          requestedLayer: "raw",
+          defaultLayer: "raw",
           queryVector,
           topK: args.top_k,
           filters: toMetadataFilter(args.filters),
-          mode: args.mode as "vector" | "keyword" | "hybrid" | undefined,
+          mode: args.mode as "vector" | "keyword" | "hybrid",
           queryText: args.query,
           explain: true,
         });
 
-        // Build chunk → source path lookup from the registry
-        let filesByChunkId: Map<string, string> | null = null;
-        let _searchRegistry: JobRegistry | null = null;
-        try {
-          _searchRegistry = new JobRegistry(deps.registryDbPath);
-          filesByChunkId = new Map();
-          for (const file of _searchRegistry.listFiles()) {
-            for (const chunkId of file.chunkIds) {
-              filesByChunkId.set(chunkId, file.sourcePath);
-            }
-          }
-        } catch {
-          // Registry not available — continue without source info
-        } finally {
-          _searchRegistry?.close();
-        }
-
         const enrichedResults = result.results.map((r) => ({
           chunkId: r.chunkId,
           score: r.score,
-          source: filesByChunkId?.get(r.chunkId) ?? null,
+          source: r.sourcePath,
           content: r.explain?.chunkPreview ?? null,
         }));
 
