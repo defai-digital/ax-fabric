@@ -7,6 +7,7 @@ export {
 export { TxtExtractor } from "./txt-extractor.js";
 export { PdfExtractor } from "./pdf-extractor.js";
 export { DocxExtractor } from "./docx-extractor.js";
+export { EmlExtractor } from "./eml-extractor.js";
 export { PptxExtractor } from "./pptx-extractor.js";
 export { XlsxExtractor } from "./xlsx-extractor.js";
 export { CsvExtractor } from "./csv-extractor.js";

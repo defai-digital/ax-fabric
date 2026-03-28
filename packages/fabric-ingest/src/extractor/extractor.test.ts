@@ -421,6 +421,7 @@ describe("ExtractorRegistry", () => {
     expect(exts).toEqual([
       ".csv",
       ".docx",
+      ".eml",
       ".htm",
       ".html",
       ".json",

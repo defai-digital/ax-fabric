@@ -320,7 +320,7 @@ describe("createDefaultRegistry", () => {
     const exts = registry.getSupportedExtensions();
 
     for (const ext of [".txt", ".md", ".markdown", ".csv", ".tsv", ".json", ".jsonl",
-      ".yaml", ".yml", ".html", ".htm", ".rtf", ".sql", ".log"]) {
+      ".yaml", ".yml", ".html", ".htm", ".rtf", ".sql", ".log", ".eml"]) {
       expect(exts).toContain(ext);
     }
   });

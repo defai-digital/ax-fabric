@@ -29,6 +29,7 @@ export const RecordMetadataSchema = z.object({
     "rtf",
     "sql",
     "log",
+    "eml",
   ]),
   page_range: z.string().nullable(),
   offset: z.number().int().nonnegative(),

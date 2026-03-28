@@ -49,6 +49,7 @@ const EXTENSION_MAP: Record<string, ContentType> = {
   ".rtf": "rtf",
   ".sql": "sql",
   ".log": "log",
+  ".eml": "eml",
 };
 
 /**

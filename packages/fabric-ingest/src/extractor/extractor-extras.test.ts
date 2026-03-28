@@ -10,6 +10,7 @@ import { join } from "node:path";
 import { AxFabricError } from "@ax-fabric/contracts";
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 
+import { EmlExtractor } from "./eml-extractor.js";
 import { MdExtractor } from "./md-extractor.js";
 import { HtmlExtractor } from "./html-extractor.js";
 import { JsonlExtractor } from "./jsonl-extractor.js";
@@ -126,6 +127,97 @@ beforeAll(async () => {
 
   // TSV with only headers
   await writeFile(join(tmpDir, "headers-only.tsv"), "Name\tAge\n");
+
+  // EML fixture — plain text email
+  await writeFile(
+    join(tmpDir, "plain.eml"),
+    [
+      "From: Alice <alice@example.com>",
+      "To: bob@example.com",
+      "Subject: Meeting Notes",
+      "Date: Sat, 28 Mar 2026 10:00:00 +0000",
+      "MIME-Version: 1.0",
+      "Content-Type: text/plain; charset=utf-8",
+      "",
+      "Hello Bob,",
+      "",
+      "Here are the meeting notes from today.",
+    ].join("\r\n"),
+  );
+
+  // EML fixture — HTML-only body (no text/plain part)
+  await writeFile(
+    join(tmpDir, "html-only.eml"),
+    [
+      "From: carol@example.com",
+      "To: dave@example.com",
+      "Subject: HTML Report",
+      "Date: Sat, 28 Mar 2026 11:00:00 +0000",
+      "MIME-Version: 1.0",
+      "Content-Type: text/html; charset=utf-8",
+      "",
+      "<html><body><h1>Report</h1><p>This is the <strong>HTML</strong> body.</p></body></html>",
+    ].join("\r\n"),
+  );
+
+  // EML fixture — with attachment
+  const boundary = "----=_Part_001";
+  const attachmentContent = Buffer.from("fake pdf content").toString("base64");
+  await writeFile(
+    join(tmpDir, "with-attachment.eml"),
+    [
+      "From: sender@example.com",
+      "To: recipient@example.com",
+      "Subject: File attached",
+      "Date: Sat, 28 Mar 2026 12:00:00 +0000",
+      "MIME-Version: 1.0",
+      `Content-Type: multipart/mixed; boundary="${boundary}"`,
+      "",
+      `--${boundary}`,
+      "Content-Type: text/plain; charset=utf-8",
+      "",
+      "Please see attached.",
+      "",
+      `--${boundary}`,
+      "Content-Type: application/pdf",
+      `Content-Disposition: attachment; filename="report.pdf"`,
+      "Content-Transfer-Encoding: base64",
+      "",
+      attachmentContent,
+      "",
+      `--${boundary}--`,
+    ].join("\r\n"),
+  );
+
+  // EML fixture — multiple recipients with Cc
+  await writeFile(
+    join(tmpDir, "multi-recipient.eml"),
+    [
+      "From: alice@example.com",
+      "To: bob@example.com, carol@example.com",
+      "Cc: dave@example.com",
+      "Subject: Team Update",
+      "Date: Sat, 28 Mar 2026 13:00:00 +0000",
+      "MIME-Version: 1.0",
+      "Content-Type: text/plain; charset=utf-8",
+      "",
+      "Team update body.",
+    ].join("\r\n"),
+  );
+
+  // EML fixture — no subject
+  await writeFile(
+    join(tmpDir, "no-subject.eml"),
+    [
+      "From: alice@example.com",
+      "To: bob@example.com",
+      "Date: Sat, 28 Mar 2026 14:00:00 +0000",
+      "MIME-Version: 1.0",
+      "Content-Type: text/plain; charset=utf-8",
+      "",
+      "No subject email body.",
+    ].join("\r\n"),
+  );
 });
 
 afterAll(async () => {
@@ -597,5 +689,86 @@ describe("htmlToMarkdown", () => {
 
   it("returns empty string for empty input", () => {
     expect(htmlToMarkdown("")).toBe("");
+  });
+});
+
+/* ================================================================== */
+/*  EmlExtractor                                                       */
+/* ================================================================== */
+
+describe("EmlExtractor", () => {
+  const extractor = new EmlExtractor();
+
+  it("has the shared extractor version", () => {
+    expect(extractor.version).toBe(EXTRACTOR_VERSION);
+  });
+
+  it("extracts subject, from, to, and date from plain text email", async () => {
+    const result = await extractor.extract(join(tmpDir, "plain.eml"));
+    expect(result.text).toContain("Subject: Meeting Notes");
+    expect(result.text).toContain("From: Alice <alice@example.com>");
+    expect(result.text).toContain("To: bob@example.com");
+    expect(result.text).toContain("Date:");
+  });
+
+  it("extracts plain text body", async () => {
+    const result = await extractor.extract(join(tmpDir, "plain.eml"));
+    expect(result.text).toContain("Hello Bob,");
+    expect(result.text).toContain("meeting notes from today");
+  });
+
+  it("falls back to HTML-to-markdown when no plain text part exists", async () => {
+    const result = await extractor.extract(join(tmpDir, "html-only.eml"));
+    expect(result.text).toContain("Subject: HTML Report");
+    // htmlToMarkdown converts <h1> to # and <strong> to **
+    expect(result.text).toContain("Report");
+    expect(result.text).toContain("HTML");
+  });
+
+  it("captures attachment metadata", async () => {
+    const result = await extractor.extract(join(tmpDir, "with-attachment.eml"));
+    expect(result.text).toContain("Attachments:");
+    expect(result.text).toContain("report.pdf");
+    expect(result.text).toContain("application/pdf");
+  });
+
+  it("includes Cc header when present", async () => {
+    const result = await extractor.extract(join(tmpDir, "multi-recipient.eml"));
+    expect(result.text).toContain("Cc: dave@example.com");
+  });
+
+  it("handles multiple recipients", async () => {
+    const result = await extractor.extract(join(tmpDir, "multi-recipient.eml"));
+    expect(result.text).toContain("bob@example.com");
+    expect(result.text).toContain("carol@example.com");
+  });
+
+  it("handles missing subject", async () => {
+    const result = await extractor.extract(join(tmpDir, "no-subject.eml"));
+    expect(result.text).toContain("Subject: (no subject)");
+    expect(result.text).toContain("No subject email body.");
+  });
+
+  it("throws AxFabricError for non-existent file", async () => {
+    await expect(extractor.extract(join(tmpDir, "nonexistent.eml"))).rejects.toThrow(AxFabricError);
+  });
+
+  it("throws AxFabricError with EXTRACT_ERROR code", async () => {
+    try {
+      await extractor.extract(join(tmpDir, "nonexistent.eml"));
+    } catch (err) {
+      expect(err).toBeInstanceOf(AxFabricError);
+      expect((err as AxFabricError).code).toBe("EXTRACT_ERROR");
+    }
+  });
+
+  it("does not include Cc header when absent", async () => {
+    const result = await extractor.extract(join(tmpDir, "plain.eml"));
+    expect(result.text).not.toContain("Cc:");
+  });
+
+  it("does not include attachments section for emails without attachments", async () => {
+    const result = await extractor.extract(join(tmpDir, "plain.eml"));
+    expect(result.text).not.toContain("Attachments:");
   });
 });
