@@ -5,7 +5,7 @@ import { DatabaseSync } from "node:sqlite";
 import type { SemanticBundle, SemanticReviewDecision } from "@ax-fabric/contracts";
 import { SemanticBundleSchema } from "@ax-fabric/contracts";
 
-const SEMANTIC_STORE_SCHEMA_VERSION = 1;
+const SEMANTIC_STORE_SCHEMA_VERSION = 2;
 
 export interface SemanticBundleSummary {
   bundleId: string;
@@ -44,6 +44,25 @@ export interface SemanticPublishedBundleRef {
   bundleId: string;
   docId: string;
   collectionId: string;
+}
+
+export type SemanticPublicationAction = "publish" | "unpublish" | "republish" | "rollback";
+
+export interface SemanticPublicationLogEntry {
+  logId: number;
+  bundleId: string;
+  collectionId: string;
+  action: SemanticPublicationAction;
+  manifestVersion: number | null;
+  replacedBundleId: string | null;
+  actor: string | null;
+  timestamp: string;
+}
+
+export interface SemanticAuditExport {
+  exportedAt: string;
+  bundles: SemanticBundleSummary[];
+  publicationLog: SemanticPublicationLogEntry[];
 }
 
 export class SemanticStore {
@@ -406,6 +425,62 @@ export class SemanticStore {
     `).run(bundleId);
   }
 
+  logPublicationEvent(entry: {
+    bundleId: string;
+    collectionId: string;
+    action: SemanticPublicationAction;
+    manifestVersion?: number | null;
+    replacedBundleId?: string | null;
+    actor?: string | null;
+  }): void {
+    this.db.prepare(`
+      INSERT INTO semantic_publication_log (
+        bundle_id, collection_id, action, manifest_version,
+        replaced_bundle_id, actor, timestamp
+      ) VALUES (?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      entry.bundleId,
+      entry.collectionId,
+      entry.action,
+      entry.manifestVersion ?? null,
+      entry.replacedBundleId ?? null,
+      entry.actor ?? null,
+      new Date().toISOString(),
+    );
+  }
+
+  listPublicationLog(opts?: { bundleId?: string; collectionId?: string }): SemanticPublicationLogEntry[] {
+    const rows = this.db.prepare(`
+      SELECT log_id, bundle_id, collection_id, action,
+             manifest_version, replaced_bundle_id, actor, timestamp
+      FROM semantic_publication_log
+      WHERE (? IS NULL OR bundle_id = ?)
+        AND (? IS NULL OR collection_id = ?)
+      ORDER BY log_id ASC
+    `).all(
+      opts?.bundleId ?? null, opts?.bundleId ?? null,
+      opts?.collectionId ?? null, opts?.collectionId ?? null,
+    ) as Array<Record<string, unknown>>;
+    return rows.map((row) => ({
+      logId: Number(row["log_id"]),
+      bundleId: String(row["bundle_id"]),
+      collectionId: String(row["collection_id"]),
+      action: String(row["action"]) as SemanticPublicationAction,
+      manifestVersion: row["manifest_version"] === null ? null : Number(row["manifest_version"]),
+      replacedBundleId: row["replaced_bundle_id"] === null ? null : String(row["replaced_bundle_id"]),
+      actor: row["actor"] === null ? null : String(row["actor"]),
+      timestamp: String(row["timestamp"]),
+    }));
+  }
+
+  exportAuditTrail(): SemanticAuditExport {
+    return {
+      exportedAt: new Date().toISOString(),
+      bundles: this.listBundles(),
+      publicationLog: this.listPublicationLog(),
+    };
+  }
+
   getSchemaVersion(): number {
     const row = this.db.prepare(`
       SELECT value
@@ -451,6 +526,10 @@ export class SemanticStore {
           `Semantic store schema version ${String(currentVersion)} is newer than this build supports `
           + `(${String(SEMANTIC_STORE_SCHEMA_VERSION)})`,
         );
+      } else if (currentVersion < SEMANTIC_STORE_SCHEMA_VERSION) {
+        // v1 → v2: publication_log table is created by createBaseSchema() above (IF NOT EXISTS).
+        // Just bump the version.
+        this.writeSchemaVersion(SEMANTIC_STORE_SCHEMA_VERSION);
       }
 
       this.db.exec("COMMIT;");
@@ -525,6 +604,24 @@ export class SemanticStore {
 
       CREATE INDEX IF NOT EXISTS idx_semantic_spans_chunk_id
         ON semantic_spans(chunk_id);
+
+      CREATE TABLE IF NOT EXISTS semantic_publication_log (
+        log_id INTEGER PRIMARY KEY AUTOINCREMENT,
+        bundle_id TEXT NOT NULL,
+        collection_id TEXT NOT NULL,
+        action TEXT NOT NULL,
+        manifest_version INTEGER,
+        replaced_bundle_id TEXT,
+        actor TEXT,
+        timestamp TEXT NOT NULL,
+        FOREIGN KEY(bundle_id) REFERENCES semantic_bundles(bundle_id)
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_publication_log_bundle
+        ON semantic_publication_log(bundle_id);
+
+      CREATE INDEX IF NOT EXISTS idx_publication_log_collection
+        ON semantic_publication_log(collection_id);
     `);
   }
 

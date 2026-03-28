@@ -1,14 +1,11 @@
-import { join } from "node:path";
-
 import type { Command } from "commander";
 
-import { resolveConfigPath, loadConfig, resolveDataRoot } from "./config-loader.js";
 import { MemoryStore, type MemoryKind } from "../memory/index.js";
+import { loadFabricRuntime, openRuntimeMemoryStore } from "./runtime.js";
 
 function createStore(configPath?: string): MemoryStore {
-  const config = loadConfig(configPath ?? resolveConfigPath());
-  const dataRoot = resolveDataRoot(config);
-  return new MemoryStore(join(dataRoot, "memory.json"));
+  const runtime = loadFabricRuntime(configPath);
+  return openRuntimeMemoryStore(runtime);
 }
 
 function parseKind(kind?: string): MemoryKind | undefined {

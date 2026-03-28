@@ -14,7 +14,7 @@ describe("SemanticStore", () => {
 
     try {
       const store = new SemanticStore(dbPath);
-      expect(store.getSchemaVersion()).toBe(1);
+      expect(store.getSchemaVersion()).toBe(2);
       store.close();
     } finally {
       rmSync(workdir, { recursive: true, force: true });
@@ -83,7 +83,7 @@ describe("SemanticStore", () => {
 
     try {
       const store = new SemanticStore(dbPath);
-      expect(store.getSchemaVersion()).toBe(1);
+      expect(store.getSchemaVersion()).toBe(2);
       store.close();
     } finally {
       rmSync(workdir, { recursive: true, force: true });

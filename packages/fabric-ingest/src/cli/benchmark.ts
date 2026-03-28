@@ -12,13 +12,10 @@ import { MockEmbedder } from "../embedder/index.js";
 import { Pipeline } from "../pipeline/index.js";
 import { JobRegistry } from "../registry/index.js";
 import { executeSearch } from "../retrieval/index.js";
+import { publishSemanticBundleToCollection } from "../semantic/publication-service.js";
 import {
   SemanticReviewEngine,
   SemanticStore,
-  buildSemanticRecords,
-  ensureSemanticCollection,
-  semanticChunkIds,
-  semanticPipelineSignature,
 } from "../semantic/index.js";
 
 type SearchMode = "vector" | "keyword" | "hybrid";
@@ -192,10 +189,13 @@ async function runSemanticPublishBenchmark(args: {
     try {
       if (args.replace) {
         store.upsertBundle(firstBundle);
-        await publishBundle({
+        await publishSemanticBundleToCollection({
           bundle: firstBundle,
+          bundleId: firstBundle.bundle_id,
           store,
-          ctx,
+          db: ctx.db,
+          config: ctx.config,
+          embedder: ctx.embedder,
           collectionId: semanticCollectionId,
           replaceExisting: false,
         });
@@ -212,10 +212,13 @@ async function runSemanticPublishBenchmark(args: {
       store.upsertBundle(bundle);
 
       const start = performance.now();
-      const manifest = await publishBundle({
+      const manifest = await publishSemanticBundleToCollection({
         bundle,
+        bundleId: bundle.bundle_id,
         store,
-        ctx,
+        db: ctx.db,
+        config: ctx.config,
+        embedder: ctx.embedder,
         collectionId: semanticCollectionId,
         replaceExisting: args.replace,
       });
@@ -468,10 +471,13 @@ async function publishSemanticCorpus(
         lowQualityThreshold: 0.4,
       }));
       store.upsertBundle(bundle);
-      await publishBundle({
+      await publishSemanticBundleToCollection({
         bundle,
+        bundleId: bundle.bundle_id,
         store,
-        ctx,
+        db: ctx.db,
+        config: ctx.config,
+        embedder: ctx.embedder,
         collectionId,
         replaceExisting: false,
       });
@@ -480,46 +486,6 @@ async function publishSemanticCorpus(
   } finally {
     store.close();
   }
-}
-
-async function publishBundle(args: {
-  bundle: SemanticBundle;
-  store: SemanticStore;
-  ctx: BenchmarkContext;
-  collectionId: string;
-  replaceExisting: boolean;
-}) {
-  const existingPublication = args.store.findPublishedBundleForDoc(args.bundle.doc_id, args.collectionId);
-  if (existingPublication && existingPublication.bundleId !== args.bundle.bundle_id) {
-    if (!args.replaceExisting) {
-      throw new Error(`Active publication already exists for doc_id "${args.bundle.doc_id}"`);
-    }
-    const existingBundle = args.store.getBundle(existingPublication.bundleId);
-    if (existingBundle) {
-      const oldChunkIds = semanticChunkIds(existingBundle);
-      if (oldChunkIds.length > 0) {
-        args.ctx.db.deleteChunks(args.collectionId, oldChunkIds, "manual_revoke");
-      }
-    }
-  }
-
-  ensureSemanticCollection(args.ctx.db, args.ctx.config, args.collectionId);
-  const records = await buildSemanticRecords(args.bundle, args.ctx.config, args.ctx.embedder);
-  await args.ctx.db.upsertBatch(args.collectionId, records);
-  const manifest = await args.ctx.db.publish(args.collectionId, {
-    embeddingModelId: args.ctx.config.embedder.model_id,
-    pipelineSignature: semanticPipelineSignature(args.bundle),
-  });
-
-  args.store.markPublished(args.bundle.bundle_id, {
-    collectionId: args.collectionId,
-    manifestVersion: manifest.version,
-    publishedAt: new Date().toISOString(),
-  });
-  if (existingPublication && existingPublication.bundleId !== args.bundle.bundle_id) {
-    args.store.clearPublished(existingPublication.bundleId);
-  }
-  return manifest;
 }
 
 async function runEvalPass(args: {

@@ -5,8 +5,6 @@
  * Registers all MCP tools and resources for the OSS/business semantic workflow surface.
  */
 
-import { join } from "node:path";
-import { homedir } from "node:os";
 import { createRequire } from "node:module";
 
 const _require = createRequire(import.meta.url);
@@ -14,22 +12,13 @@ const { version: PACKAGE_VERSION } = _require("../../package.json") as { version
 
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
-import { AkiDB } from "@ax-fabric/akidb";
 
-import { loadConfig, resolveDataRoot } from "../cli/config-loader.js";
 import { createEmbedderFromConfig } from "../cli/create-embedder.js";
+import { loadFabricRuntime, openRuntimeAkiDb } from "../cli/runtime.js";
 import { registerAkiDbTools } from "./akidb-tools.js";
 import { registerFabricTools } from "./fabric-tools.js";
 import { registerResources } from "./resources.js";
 import { readToken, validateToken } from "./auth.js";
-
-/** Expand a leading `~` to the current user's home directory. */
-function expandTilde(p: string): string {
-  if (p === "~" || p.startsWith("~/")) {
-    return join(homedir(), p.slice(2));
-  }
-  return p;
-}
 
 export interface McpServerOptions {
   /** Override config file path. Default: ~/.ax-fabric/config.yaml */
@@ -45,18 +34,14 @@ export function createMcpServer(options?: McpServerOptions): {
   start: () => Promise<void>;
   close: () => Promise<void>;
 } {
-  const config = loadConfig(options?.configPath);
-  const dataRoot = resolveDataRoot(config);
-  const akidbRoot = expandTilde(config.akidb.root);
+  const runtime = loadFabricRuntime(options?.configPath);
+  const { config } = runtime;
 
   // Open AkiDB
-  const db = new AkiDB({ storagePath: akidbRoot });
+  const db = openRuntimeAkiDb(runtime);
 
   // Create embedder
   const embedder = createEmbedderFromConfig(config);
-
-  // Registry path
-  const registryDbPath = join(dataRoot, "registry.db");
 
   // Create MCP server
   const server = new McpServer({
@@ -71,10 +56,16 @@ export function createMcpServer(options?: McpServerOptions): {
 
   // Register all tools
   registerAkiDbTools(server, db);
-  registerFabricTools(server, { db, embedder, config, registryDbPath, memoryStorePath: join(dataRoot, "memory.json") });
+  registerFabricTools(server, {
+    db,
+    embedder,
+    config,
+    registryDbPath: runtime.paths.registryDbPath,
+    memoryStorePath: runtime.paths.memoryStorePath,
+  });
 
   // Register all resources
-  registerResources(server, { db, config, registryDbPath });
+  registerResources(server, { db, config, registryDbPath: runtime.paths.registryDbPath });
 
   const start = async (): Promise<void> => {
     const transport = new StdioServerTransport();
