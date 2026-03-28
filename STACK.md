@@ -4,37 +4,38 @@ This document defines how AX Fabric fits into the DEFAI offline AI product stack
 
 ## Role in the Product Family
 
-AX Fabric is the core product layer for enterprise offline AI systems.
+AX Fabric is the governed semantic backend in the product family.
 
 It is responsible for:
 
 - document ingestion,
-- indexing and storage,
+- semantic distillation and publication,
+- governed storage of semantic knowledge,
 - vector, keyword, and hybrid retrieval,
-- grounded memory and knowledge access,
-- MCP and SDK integration for local AI applications.
+- provenance-aware knowledge access,
+- MCP and SDK integration for applications and tools.
 
 The rest of the product family should be understood relative to AX Fabric:
 
+- [`ax-studio`](https://github.com/defai-digital/ax-studio): free user-facing client and reference interface
 - [`ax-cli`](https://github.com/defai-digital/ax-cli): operator and developer endpoint
-- [`ax-studio`](https://github.com/defai-digital/ax-studio): visual and workspace endpoint
 - [`ax-serving`](https://github.com/defai-digital/ax-serving): optional local model serving and orchestration backend
 
 ## Recommended Architecture
 
 ```text
-Enterprise users / developers / applications
+Enterprise users / operators / applications
                 │
                 ▼
-         ax-cli / ax-studio
+  ax-studio / custom tools / internal apps
                 │
                 ▼
              AX Fabric
                 │
                 ├── ingestion
-                ├── indexing
-                ├── retrieval
-                ├── memory / context delivery
+                ├── semantic distillation
+                ├── review / publish / rollback
+                ├── governed retrieval
                 └── MCP / SDK integration
                 │
                 ▼
@@ -48,27 +49,39 @@ Enterprise users / developers / applications
 
 Rules:
 
-- AX Fabric is the product anchor.
-- `ax-cli` and `ax-studio` are the main user-facing endpoints.
+- AX Fabric is the governed backend component.
+- `ax-studio` is a free client, not the only front end.
+- customers may use AX Studio, bring their own tools, or commission custom integrations.
 - `ax-serving` is supporting infrastructure, not the primary product narrative.
 
 ## What AX Fabric Is
 
 AX Fabric is:
 
-- a local-first knowledge and retrieval fabric,
-- a context layer for grounded AI systems,
+- a governed semantic backend,
+- a private-AI knowledge runtime,
 - an offline-friendly system component for enterprise AI deployments,
-- a product that can be used directly through CLI, SDK, Python, or MCP.
+- a component that can be consumed by AX Studio, custom tools, internal apps, CLI, SDKs, or MCP.
 
 AX Fabric is not:
 
+- a user-facing desktop application,
+- the only client in the product family,
 - only a vector database,
 - only an ingestion daemon,
-- only an internal backend for another DEFAI repo,
 - or a general-purpose agent framework.
 
 ## Endpoint Responsibilities
+
+### ax-studio
+
+Use `ax-studio` when you want:
+
+- a free reference client for AX Fabric,
+- a user-facing desktop experience,
+- an out-of-the-box way to consume governed knowledge without building your own front end.
+
+`ax-studio` is an optional client. It is not the monetized backend.
 
 ### ax-cli
 
@@ -81,27 +94,11 @@ Use `ax-cli` when you want:
 
 `ax-cli` should be understood as an endpoint into AX Fabric, not as a replacement for it.
 
-For `v1.3`, the intended relationship is:
+The intended relationship is:
 
 - `ax-cli` drives setup, ingestion, diagnostics, and scripted workflows,
 - AX Fabric remains the underlying knowledge and context system,
 - any project memory or warmup flows in `ax-cli` should either use AX Fabric directly or clearly describe when they do not.
-
-### ax-studio
-
-Use `ax-studio` when you want:
-
-- a visual workspace for local AI workflows,
-- interactive retrieval and knowledge access,
-- managed UI flows for enterprise users and operators.
-
-For `v1.3`, `ax-studio` should be treated as a visual client around AX Fabric rather than a separate knowledge backend.
-
-The intended backend relationship is:
-
-- AX Fabric owns document ingestion, indexing, retrieval, and MCP-facing knowledge access,
-- `ax-studio` consumes that capability through the documented local stack,
-- `ax-serving` is used only when model execution or local embedding infrastructure is required.
 
 ### ax-serving
 
@@ -114,52 +111,27 @@ Use `ax-serving` when AX Fabric needs:
 
 AX Fabric can also work with other compatible embedding backends when appropriate. `ax-serving` is recommended when you want tighter DEFAI-local integration.
 
+## Commercial Model
+
+The product-family commercial model is:
+
+- `ax-studio` is the free client
+- `ax-fabric` is the licensable governed semantic backend
+- customers may use AX Studio, bring their own tools, or engage AutomatosX to build custom tools and integrations on top of AX Fabric
+
 ## Evaluation Path
 
-For `v1.2.x`, the recommended evaluator journey is:
+The recommended evaluator journey is:
 
 1. Read [README.md](./README.md) for the product position.
-2. Follow [QUICKSTART.md](./QUICKSTART.md) to ingest and query a local document set.
-3. Use this document to understand how `ax-cli`, `ax-studio`, and `ax-serving` fit around AX Fabric.
-
-The expected first successful result is:
-
-- local documents are indexed,
-- a query returns grounded results,
-- the evaluator understands where AX Fabric sits in the broader offline stack.
+2. Follow [QUICKSTART.md](./QUICKSTART.md) to ingest, publish, and retrieve governed knowledge.
+3. Use this document to understand how `ax-studio`, custom tools, and `ax-serving` fit around AX Fabric.
 
 ## Enterprise Offline Use Cases
 
 AX Fabric is intended for environments where:
 
 - enterprise knowledge should stay in local or private infrastructure,
-- AI applications need grounded retrieval and memory,
+- AI applications need governed semantic knowledge rather than raw-file retrieval alone,
 - cloud dependency is restricted or undesirable,
-- deployment teams need a clear separation between UI, knowledge, and serving layers.
-
-## Near-Term Scope
-
-In the `v1.2.x` phase, AX Fabric should present a coherent product story and evaluation path.
-
-Near-term priorities:
-
-- clarity of product boundaries,
-- clear endpoint relationships,
-- first-run evaluation flow,
-- enterprise offline positioning.
-
-Later phases will expand deeper into:
-
-- installability and stack operability,
-- retrieval quality and explainability,
-- memory and context services,
-- enterprise governance and observability.
-
-## v1.3 Completion Criteria
-
-The `v1.3` phase is complete when:
-
-- the local stack has a documented startup order,
-- `ax-cli` and `ax-studio` integration roles are explicit,
-- operators have a first-line health and diagnostics command,
-- and evaluators can follow a reproducible local-stack path without reading source code.
+- deployment teams need a clear separation between client, knowledge backend, and serving layers.

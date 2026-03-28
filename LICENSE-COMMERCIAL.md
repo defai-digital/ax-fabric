@@ -1,18 +1,39 @@
-# Commercial Licensing (Business and Enterprise Editions)
+# Commercial Licensing Summary
 
-This commercial licensing section applies to AX Fabric (`ax-fabric`).
-AX Fabric is a component of the AutomatosX ecosystem by DEFAI Private Limited.
+This document summarizes the commercial licensing path for AX Fabric (`ax-fabric`).
 
-This repository is dual-licensed. Unless you have a separate commercial agreement,
-your use is governed by the GNU Affero General Public License, version 3 or any
-later version (`LICENSE`).
+AX Fabric is a governed document and semantic backend component in the AutomatosX ecosystem by DEFAI Private Limited.
 
-Business and Enterprise edition rights, including distributed deployment features and commercial support terms, are provided under separate commercial agreements.
+This repository is dual-licensed. Unless you have a separate commercial agreement, your use is governed by the GNU Affero General Public License, version 3 or any later version (`LICENSE`).
 
-## Summary
+This file is a commercial licensing summary only. It is not the full commercial agreement and does not by itself grant a commercial license.
 
-- OSS edition: AGPL-3.0-or-later, intended for use under open-source copyleft terms.
-- Business edition: free for SMEs under USD 2M annual revenue (subject to commercial terms).
-- Enterprise edition: commercial licensing for production deployments and commercial support.
+## Commercial License Summary
 
-For Enterprise software and license sales enquiries, contact `enquiry@automatosx.com`.
+A commercial license is available for organizations that want to use AX Fabric as a proprietary backend component for private AI systems, internal tools, enterprise workflows, or custom software integrations.
+
+Commercial agreements may cover one or more of the following:
+
+- proprietary internal use without AGPL redistribution obligations
+- private deployment in on-premise, air-gapped, or controlled enterprise environments
+- embedding AX Fabric into commercial products, internal platforms, or customer-delivered systems
+- use with custom-built clients, internal tools, or domain-specific applications
+- custom connectors, custom tools, and workflow integrations built by AutomatosX
+- commercial support, deployment assistance, and enterprise service terms
+
+## Open-Source vs Commercial Path
+
+- Open-source path: use AX Fabric under `AGPL-3.0-or-later`
+- Commercial path: obtain a separate written license from DEFAI Private Limited / AutomatosX
+
+## Commercial Packaging
+
+Commercial packaging is offered by agreement and may include:
+
+- commercial runtime licensing
+- private deployment rights
+- custom integration work
+- custom tool development
+- support and service terms
+
+For licensing, OEM, integration, and custom solution enquiries, contact `enquiry@automatosx.com`.

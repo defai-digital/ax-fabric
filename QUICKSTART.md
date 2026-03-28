@@ -3,9 +3,9 @@
 This guide gets you from a fresh checkout to:
 
 1. a working local AX Fabric install
-2. a successful ingest and search run
-3. an optional semantic review and publish workflow
-4. an optional MCP server for agent integration
+2. a successful governed semantic publish flow
+3. a backend that can be consumed by AX Studio, your own tools, or MCP workflows
+4. an optional MCP server for integration into external clients and tools
 
 If you only want one path, do **Path A** first.
 
@@ -163,7 +163,7 @@ Explainable results:
 pnpm exec ax-fabric search "authentication token expiry" --mode hybrid --explain
 ```
 
-At this point AX Fabric is working as a local ingest and retrieval stack.
+At this point AX Fabric is working as a local knowledge backend.
 
 ## Path B: Semantic Workflow
 
@@ -215,7 +215,7 @@ pnpm exec ax-fabric semantic unpublish <bundle-id>
 
 ## Path C: MCP Server
 
-Use this when AX Fabric should serve tools to Claude, Gemini, or another MCP client.
+Use this when AX Fabric should serve tools to AX Studio, Claude, Gemini, or another MCP client.
 
 ### 1. Start the server
 
@@ -296,9 +296,9 @@ pnpm exec ax-fabric doctor --check-serving
 Daemon mode:
 
 ```bash
-pnpm exec ax-fabric ingest daemon start
-pnpm exec ax-fabric ingest daemon status
-pnpm exec ax-fabric ingest daemon stop
+pnpm exec ax-fabric daemon start
+pnpm exec ax-fabric daemon status
+pnpm exec ax-fabric daemon stop
 ```
 
 Memory and context:
@@ -316,7 +316,7 @@ pnpm exec ax-fabric memory assemble --session demo
 | Dimension mismatch | make `akidb.dimension` match the embedding model output |
 | Search returns no results | run `ingest status`, then rerun `ingest run` |
 | MCP auth fails | generate a token and export `AX_FABRIC_MCP_TOKEN` |
-| Daemon lock error | run `ingest daemon status` and stop the existing process |
+| Daemon lock error | run `ax-fabric daemon status` and stop the existing process |
 
 ## What To Read Next
 

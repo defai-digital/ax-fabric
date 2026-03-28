@@ -1,17 +1,17 @@
 # AX Fabric Operations Guide
 
-This document defines the recommended `v1.3` local-stack operating model for AX Fabric.
+This document defines the recommended operating model for AX Fabric as a governed semantic backend.
 
 ## Goal
 
-The goal of `v1.3` is to make the DEFAI offline stack installable and operable by enterprise developers and operators.
+The goal is to make AX Fabric installable and operable as the governed semantic backend behind AX Studio, custom tools, and private AI workflows.
 
-At minimum, an operator should be able to:
+At minimum, an operator or integrator should be able to:
 
 - initialize AX Fabric,
 - configure a local or private embedding backend,
 - ingest documents,
-- expose AX Fabric to local AI tools,
+- expose AX Fabric to AX Studio or other AI tools,
 - and diagnose common failure points without reading source code.
 
 ## Stack Topology
@@ -22,7 +22,7 @@ Recommended local stack:
 operator / developer
         │
         ├── ax-cli
-        ├── ax-studio
+        ├── ax-studio / custom tools
         ▼
      AX Fabric
         │
@@ -97,7 +97,7 @@ pnpm exec ax-fabric orchestrator start
 
 ## AX Studio Backend Integration
 
-For `v1.3`, the recommended relationship is:
+The recommended relationship is:
 
 - `ax-studio` is the visual workspace,
 - AX Fabric is the knowledge and retrieval backend,
@@ -113,7 +113,7 @@ If `ax-studio` expects multiple local ports or backend services, AX Fabric shoul
 
 ## AX CLI Memory and Context Relationship
 
-For `v1.3`, `ax-cli` should be treated as an operator and developer endpoint around AX Fabric.
+`ax-cli` should be treated as an operator and developer endpoint around AX Fabric.
 
 That means:
 
@@ -158,7 +158,7 @@ Before handing the stack to end users, confirm:
 
 ## Reproducible Local Demo Path
 
-The `v1.3` local-stack demo should be reproducible with these steps:
+The local-stack demo should be reproducible with these steps:
 
 1. initialize AX Fabric,
 2. configure a local embedding backend,
@@ -225,22 +225,145 @@ Action:
 - start the daemon if continuous sync is needed,
 - otherwise this warning can be ignored for one-shot workflows.
 
-## Operational Scope for v1.3
+## Backup and Restore
 
-`v1.3` is about local-stack operability, not full enterprise governance.
+AX Fabric stores all durable state in two directory trees. Both must be backed up together to produce a consistent snapshot.
 
-Included in this phase:
+### What to back up
 
-- startup order,
-- endpoint relationships,
-- local health diagnostics,
+| Store | Default path | Contains |
+|-------|-------------|----------|
+| Data root | `~/.ax-fabric/data/` | `registry.db` (ingestion state), `semantic.db` (semantic bundles + publication log), `memory.json` |
+| AkiDB storage | Configured in `akidb.root` (default `~/.ax-fabric/akidb/`) | Segments, WAL, metadata, manifests |
+
+Both paths are configured in `~/.ax-fabric/config.yaml`.
+
+### Backup procedure
+
+1. Stop the daemon and MCP server if running.
+2. Copy the data root:
+   ```bash
+   cp -r ~/.ax-fabric/data/ /backup/ax-fabric-data/
+   ```
+3. Copy the AkiDB storage root:
+   ```bash
+   cp -r ~/.ax-fabric/akidb/ /backup/ax-fabric-akidb/
+   ```
+
+If the daemon is running during backup, SQLite WAL checkpointing may leave the backup in an inconsistent state. Always stop services first.
+
+### Restore procedure
+
+1. Stop all AX Fabric services.
+2. Replace the data root with the backup:
+   ```bash
+   rm -rf ~/.ax-fabric/data/ && cp -r /backup/ax-fabric-data/ ~/.ax-fabric/data/
+   ```
+3. Replace the AkiDB storage root with the backup:
+   ```bash
+   rm -rf ~/.ax-fabric/akidb/ && cp -r /backup/ax-fabric-akidb/ ~/.ax-fabric/akidb/
+   ```
+4. Restart services and verify with `ax-fabric doctor`.
+
+### What is not backed up
+
+- The config file (`~/.ax-fabric/config.yaml`) — back this up separately if customized.
+- Source documents — these are external to AX Fabric and must be preserved by the operator.
+- MCP auth tokens — regenerate after restore if needed.
+
+## Upgrade and Migration
+
+### Schema migrations
+
+AX Fabric applies schema migrations automatically on startup:
+
+- **Semantic store** (`semantic.db`): migrations run when the store is opened. The current schema version is stored in the `semantic_store_metadata` table. Version upgrades (e.g., v1 → v2) are applied transparently.
+- **AkiDB segments**: the binary segment format includes a version header. Segments are forward-compatible within the same major version.
+- **Job registry** (`registry.db`): schema is created on first use and is forward-compatible.
+
+No manual migration commands are needed for normal upgrades.
+
+### Upgrade procedure
+
+1. Stop all AX Fabric services (daemon, MCP server, orchestrator).
+2. Back up data root and AkiDB storage (see Backup section above).
+3. Pull and build the new version:
+   ```bash
+   git pull && pnpm install && pnpm build
+   ```
+4. Start services. Schema migrations apply automatically on first access.
+5. Verify with `ax-fabric doctor`.
+
+### Downgrade considerations
+
+Downgrading is not automatically supported. If a schema migration has been applied (e.g., semantic store v1 → v2), the older build will refuse to open a newer schema. Restore from a pre-upgrade backup if downgrade is required.
+
+### Config compatibility
+
+New releases may add optional config fields. The config loader validates with Zod and will reject unknown or invalid fields. When upgrading:
+
+- Review release notes for new config options.
+- Run `ax-fabric init` to regenerate a config file if major changes are needed.
+- Existing valid configs continue to work without changes.
+
+## Observability
+
+### CLI diagnostics
+
+| Command | Purpose |
+|---------|---------|
+| `ax-fabric doctor` | Config, storage, and source validation |
+| `ax-fabric doctor --check-serving` | Probe configured HTTP endpoints |
+| `ax-fabric ingest status` | Show tracked files and ingestion state |
+| `ax-fabric ingest diff` | Preview what would change on next run |
+| `ax-fabric semantic bundles` | List semantic bundles and their review/publication state |
+| `ax-fabric semantic show <id> --json` | Inspect a single bundle with full details |
+| `ax-fabric semantic audit-export` | Export the full governance audit trail as JSON |
+
+### MCP diagnostics
+
+MCP tools that return structured diagnostics:
+
+- `fabric_ingest_status` — tracked file status
+- `fabric_ingest_diff` — dry-run change detection
+- `fabric_semantic_list_bundles` — bundle inventory
+- `fabric_semantic_inspect_bundle` — bundle details + publication state
+- `fabric_config_show` — current config (secrets redacted)
+
+### Error patterns
+
+AX Fabric uses typed error codes via `AxFabricError`. Common codes:
+
+| Code | Meaning |
+|------|---------|
+| `EXTRACT_ERROR` | File extraction failed (unsupported format, corrupt file, I/O error) |
+| `EMBED_ERROR` | Embedding API call failed (timeout, rate limit, bad response) |
+| `VALIDATION_ERROR` | Zod schema validation failure (bad config, malformed record) |
+
+### Daemon observability
+
+The daemon writes a status snapshot to `~/.ax-fabric/status.json` on each cycle. This file includes:
+
+- last cycle timestamp
+- files processed
+- errors encountered
+
+Use `ax-fabric doctor` to check daemon status visibility.
+
+## Operational Scope
+
+This document covers single-node operability for AX Fabric as a governed semantic backend.
+
+Included:
+
+- startup order and endpoint relationships,
+- backup, restore, and upgrade procedures,
+- local health diagnostics and observability,
 - reproducible evaluation flow,
-- `ax-studio` backend guidance,
-- `ax-cli` memory and context guidance.
+- AX Studio and AX CLI integration guidance.
 
-Not yet fully solved in this phase:
+Not yet included:
 
 - enterprise IAM,
-- full audit trails,
-- complex multi-node control planes,
+- multi-node distributed deployment,
 - full production SRE automation.

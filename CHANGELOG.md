@@ -1,5 +1,42 @@
 # Changelog
 
+## v3.0.0
+
+Governed semantic backend release with maintainability refactoring, email ingestion, and governance audit trail.
+
+### Highlights
+
+- Repositioned AX Fabric as the governed semantic backend for AX Studio and private AI systems
+- Clarified the product-family model: AX Studio is the free client; AX Fabric is the commercial backend component
+- Simplified licensing language into open-source AGPL usage and separate commercial licensing for proprietary deployment, embedding, and custom integrations
+- Updated public documentation to emphasize governed semantic lifecycle, backend consumption, and private deployment use cases
+
+### Maintainability (v3.1 refactoring)
+
+- Extracted shared semantic publication service (`publication-service.ts`) eliminating duplicated lifecycle orchestration across CLI, MCP, and benchmarks
+- Extracted runtime context helpers (`runtime.ts`) consolidating config loading, path resolution, and store opening
+- Split MCP tool registration into focused modules: `semantic-tools.ts` and `ingest-tools.ts`
+- Split CLI semantic commands into focused modules: `semantic-publish-commands.ts`, `semantic-store-commands.ts`, `semantic-helpers.ts`; top-level `semantic.ts` reduced by 65%
+- Added `--json` output to all semantic publication and store CLI commands for machine-readable workflows
+
+### Governance
+
+- Added `semantic_publication_log` table (schema v2) recording every publish/unpublish/republish/rollback event with timestamps, manifest versions, replaced bundle IDs, and actor identity
+- Added `ax-fabric semantic audit-export` CLI command for full governance trail export as JSON
+- Automatic schema migration from v1 to v2 on store open
+
+### Email ingestion (phase 1)
+
+- Added `.eml` (RFC 2822 / MIME) extractor using `mailparser` with HTML-to-markdown fallback
+- Extracts sender, recipients, date, subject, body text, and attachment metadata
+- Registered in contracts `content_type` enum, source scanner, and extractor registry (16 formats total)
+
+### Operability
+
+- Added backup and restore guidance to OPERATIONS.md
+- Added upgrade and migration guidance to OPERATIONS.md
+- Added observability reference tables (CLI diagnostics, MCP diagnostics, error codes) to OPERATIONS.md
+
 ## v2.0.0
 
 Semantic workflow core release.
