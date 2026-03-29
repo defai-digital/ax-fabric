@@ -594,6 +594,19 @@ impl MetadataStore {
         Ok(())
     }
 
+    /// Remove all chunk text rows for a collection from both FTS5 indexes.
+    pub fn fts_delete_collection(&self, collection_id: &str) -> Result<()> {
+        self.conn.execute(
+            "DELETE FROM chunk_text_fts WHERE collection_id = ?1",
+            params![collection_id],
+        )?;
+        self.conn.execute(
+            "DELETE FROM chunk_text_trigram WHERE collection_id = ?1",
+            params![collection_id],
+        )?;
+        Ok(())
+    }
+
     /// Retrieve the chunk text stored in the FTS5 index for a given chunk_id.
     #[allow(dead_code)]
     pub fn fts_get_text(&self, chunk_id: &str) -> Result<Option<String>> {

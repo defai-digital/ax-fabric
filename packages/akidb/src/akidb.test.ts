@@ -584,6 +584,62 @@ describe("AkiDB integration", () => {
     }
   });
 
+  it("rollback restores keyword search state", async () => {
+    db.createCollection({
+      collectionId: "rollback-keyword-test",
+      dimension: DIM,
+      metric: "cosine",
+      embeddingModelId: "test-model",
+    });
+
+    await db.upsertBatch("rollback-keyword-test", [
+      {
+        ...makeRecord(0),
+        chunk_id: "rb-chunk-0",
+        chunk_text: "legacy xml parser guidance",
+      },
+    ]);
+    const manifest0 = await db.publish("rollback-keyword-test", {
+      embeddingModelId: "test-model",
+      pipelineSignature: "sha256:pipe-v1",
+    });
+
+    db.deleteChunks("rollback-keyword-test", ["rb-chunk-0"]);
+    await db.publish("rollback-keyword-test", {
+      embeddingModelId: "test-model",
+      pipelineSignature: "sha256:pipe-v2",
+    });
+
+    const afterDelete = await db.search({
+      collectionId: "rollback-keyword-test",
+      queryVector: new Float32Array(DIM),
+      queryText: "xml parser",
+      topK: 5,
+      mode: "keyword",
+    });
+    expect(afterDelete.results.map((r) => r.chunkId)).not.toContain("rb-chunk-0");
+
+    db.rollback("rollback-keyword-test", manifest0.manifest_id);
+
+    const afterRollbackKeyword = await db.search({
+      collectionId: "rollback-keyword-test",
+      queryVector: new Float32Array(DIM),
+      queryText: "xml parser",
+      topK: 5,
+      mode: "keyword",
+    });
+    expect(afterRollbackKeyword.results.map((r) => r.chunkId)).toContain("rb-chunk-0");
+
+    const afterRollbackHybrid = await db.search({
+      collectionId: "rollback-keyword-test",
+      queryVector: makeQueryVector(0),
+      queryText: "xml parser",
+      topK: 5,
+      mode: "hybrid",
+    });
+    expect(afterRollbackHybrid.results.map((r) => r.chunkId)).toContain("rb-chunk-0");
+  });
+
   it("returns explain info when explain flag is set", async () => {
     db.createCollection({
       collectionId: "explain-test",

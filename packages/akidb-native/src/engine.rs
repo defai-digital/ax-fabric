@@ -550,6 +550,7 @@ impl EngineInner {
         if !pending_tombstone_ids.is_empty() {
             metadata.delete_tombstones(&pending_tombstone_ids)?;
         }
+        self.rebuild_fts_for_manifest(&metadata, &manifest)?;
         Ok(manifest)
     }
 
@@ -665,6 +666,45 @@ impl EngineInner {
         self.write_paths
             .lock()
             .map_err(|_| AkiDbError::InvalidArgument("Write paths lock poisoned".to_string()))
+    }
+
+    fn rebuild_fts_for_manifest(&self, metadata: &MetadataStore, manifest: &Manifest) -> Result<()> {
+        metadata.fts_delete_collection(&manifest.collection_id)?;
+
+        let tombstone_set: std::collections::HashSet<&str> =
+            manifest.tombstone_ids.iter().map(String::as_str).collect();
+        let mut fts_owned: Vec<(String, String, String)> = Vec::new();
+
+        for segment_id in &manifest.segment_ids {
+            let segment = metadata
+                .get_segment(segment_id)?
+                .ok_or_else(|| AkiDbError::SegmentNotFound(segment_id.clone()))?;
+            let buffer = self.storage.get_object(&segment.storage_path)?;
+            let reader = crate::segment::reader::SegmentReader::from_buffer(buffer)?;
+            let chunk_ids = reader.get_chunk_ids()?;
+            let Some(chunk_texts) = reader.get_chunk_texts() else {
+                continue;
+            };
+
+            for (chunk_id, chunk_text) in chunk_ids.into_iter().zip(chunk_texts.into_iter()) {
+                if tombstone_set.contains(chunk_id.as_str()) || chunk_text.is_empty() {
+                    continue;
+                }
+                fts_owned.push((chunk_id, manifest.collection_id.clone(), chunk_text));
+            }
+        }
+
+        if !fts_owned.is_empty() {
+            let fts_refs: Vec<(&str, &str, &str)> = fts_owned
+                .iter()
+                .map(|(chunk_id, collection_id, chunk_text)| {
+                    (chunk_id.as_str(), collection_id.as_str(), chunk_text.as_str())
+                })
+                .collect();
+            metadata.fts_insert_batch(&fts_refs)?;
+        }
+
+        Ok(())
     }
 }
 
@@ -938,6 +978,149 @@ mod tests {
         assert!(
             rollback_result.results.iter().any(|r| r.chunk_id == "chunk-a"),
             "vector search should restore chunk-a after rollback to a manifest without tombstones"
+        );
+
+        let rollback_keyword = engine
+            .search(SearchOptions {
+                collection_id: "docs".to_string(),
+                query_vector: vec![1.0, 0.0],
+                top_k: 5,
+                filters: None,
+                manifest_version: None,
+                include_uncommitted: true,
+                mode: SearchMode::Keyword,
+                query_text: Some("alpha".to_string()),
+                vector_weight: 1.0,
+                keyword_weight: 1.0,
+                explain: false,
+                ef_search: None,
+            })
+            .unwrap();
+        assert!(
+            rollback_keyword.results.iter().any(|r| r.chunk_id == "chunk-a"),
+            "keyword search should restore chunk-a after rollback to a manifest without tombstones"
+        );
+
+        let rollback_hybrid = engine
+            .search(SearchOptions {
+                collection_id: "docs".to_string(),
+                query_vector: vec![1.0, 0.0],
+                top_k: 5,
+                filters: None,
+                manifest_version: None,
+                include_uncommitted: true,
+                mode: SearchMode::Hybrid,
+                query_text: Some("alpha".to_string()),
+                vector_weight: 1.0,
+                keyword_weight: 1.0,
+                explain: false,
+                ef_search: None,
+            })
+            .unwrap();
+        assert!(
+            rollback_hybrid.results.iter().any(|r| r.chunk_id == "chunk-a"),
+            "hybrid search should restore chunk-a after rollback to a manifest without tombstones"
+        );
+    }
+
+    #[test]
+    fn rollback_rebuilds_keyword_state_for_current_manifest() {
+        let dir = tempfile::tempdir().unwrap();
+        let engine = EngineInner::open(EngineOptions {
+            storage_path: dir.path().to_path_buf(),
+            disable_wal: true,
+        })
+        .unwrap();
+
+        engine
+            .create_collection("docs", 2, "cosine", "model", "fp16", 16, 200, 100)
+            .unwrap();
+
+        engine
+            .upsert_batch(
+                "docs",
+                &[NativeRecord {
+                    chunk_id: "chunk-v0".to_string(),
+                    doc_id: "doc-v0".to_string(),
+                    vector: vec![1.0, 0.0],
+                    metadata: serde_json::json!({"topic": "baseline"}),
+                    chunk_text: Some("baseline release notes".to_string()),
+                }],
+            )
+            .unwrap();
+        let manifest0 = engine.auto_publish("docs", "model", "sig-v0").unwrap();
+
+        engine
+            .upsert_batch(
+                "docs",
+                &[NativeRecord {
+                    chunk_id: "chunk-v1".to_string(),
+                    doc_id: "doc-v1".to_string(),
+                    vector: vec![0.0, 1.0],
+                    metadata: serde_json::json!({"topic": "new"}),
+                    chunk_text: Some("new feature launch".to_string()),
+                }],
+            )
+            .unwrap();
+        engine.auto_publish("docs", "model", "sig-v1").unwrap();
+
+        let before_rollback = engine
+            .search(SearchOptions {
+                collection_id: "docs".to_string(),
+                query_vector: vec![0.0, 1.0],
+                top_k: 5,
+                filters: None,
+                manifest_version: None,
+                include_uncommitted: true,
+                mode: SearchMode::Keyword,
+                query_text: Some("new feature".to_string()),
+                vector_weight: 1.0,
+                keyword_weight: 1.0,
+                explain: false,
+                ef_search: None,
+            })
+            .unwrap();
+        assert!(before_rollback.results.iter().any(|r| r.chunk_id == "chunk-v1"));
+
+        engine.rollback("docs", &manifest0.manifest_id).unwrap();
+
+        let after_rollback_old = engine
+            .search(SearchOptions {
+                collection_id: "docs".to_string(),
+                query_vector: vec![1.0, 0.0],
+                top_k: 5,
+                filters: None,
+                manifest_version: None,
+                include_uncommitted: true,
+                mode: SearchMode::Keyword,
+                query_text: Some("baseline release".to_string()),
+                vector_weight: 1.0,
+                keyword_weight: 1.0,
+                explain: false,
+                ef_search: None,
+            })
+            .unwrap();
+        assert!(after_rollback_old.results.iter().any(|r| r.chunk_id == "chunk-v0"));
+
+        let after_rollback_new = engine
+            .search(SearchOptions {
+                collection_id: "docs".to_string(),
+                query_vector: vec![0.0, 1.0],
+                top_k: 5,
+                filters: None,
+                manifest_version: None,
+                include_uncommitted: true,
+                mode: SearchMode::Keyword,
+                query_text: Some("new feature".to_string()),
+                vector_weight: 1.0,
+                keyword_weight: 1.0,
+                explain: false,
+                ef_search: None,
+            })
+            .unwrap();
+        assert!(
+            after_rollback_new.results.iter().all(|r| r.chunk_id != "chunk-v1"),
+            "keyword search should not return chunks from manifests newer than the rollback target"
         );
     }
 
