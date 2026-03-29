@@ -253,6 +253,8 @@ See [docs/open-core-enterprise-boundary.md](./docs/open-core-enterprise-boundary
 
 For the next layer of implementation planning, see [docs/enterprise-repo-bootstrap.md](./docs/enterprise-repo-bootstrap.md) and [docs/public-private-integration-contract.md](./docs/public-private-integration-contract.md).
 
+To scaffold a sibling private repository locally, run `pnpm scaffold:enterprise -- ../ax-fabric-enterprise`.
+
 ## Product Context
 
 AX Fabric is the governed document and semantic backend in the product family.

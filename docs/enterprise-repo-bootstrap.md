@@ -10,6 +10,23 @@ Recommended visibility:
 
 - private
 
+## Local Bootstrap Command
+
+This public repository includes a local scaffold helper that generates a sibling private repository outside the OSS tree:
+
+```bash
+pnpm scaffold:enterprise -- ../ax-fabric-enterprise
+```
+
+Optional flags:
+
+- `--scope @your-org`
+- `--repo-name ax-fabric-enterprise`
+
+The helper refuses to write inside the public repository, so proprietary bootstrap files do not end up tracked here by accident.
+
+The generated package manifests pin public AX Fabric dependencies to the current public line placeholder (`3.2.x`). Adjust that range when you cut the real private line.
+
 ## Purpose
 
 The private enterprise repository is where proprietary implementation should live.
