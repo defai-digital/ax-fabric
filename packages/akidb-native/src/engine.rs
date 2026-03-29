@@ -10,7 +10,7 @@ use std::sync::{Arc, Mutex, MutexGuard};
 use crate::collection::{CollectionManager, CreateCollectionOptions};
 use crate::compaction::{compact, CompactResult};
 use crate::error::{AkiDbError, Result};
-use crate::index::ExplainInfo;
+use crate::index::{ExplainInfo, SearchResult};
 use crate::manifest::{ManifestManager, PublishManifestOptions};
 use crate::metadata::{Collection, Manifest, MetadataStore, Tombstone};
 use crate::query::{
@@ -283,16 +283,15 @@ impl EngineInner {
             // Prewarm is best-effort; a panic on a corrupt segment must not
             // shadow the already-committed manifest.
             let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                self.query_engine
-                    .prewarm_paths(
-                        &storage,
-                        &segment_paths,
-                        manifest.version,
-                        &tombstone_set,
-                        tombstone_fingerprint(&tombstone_set),
-                        hnsw,
-                        &metric,
-                    );
+                self.query_engine.prewarm_paths(
+                    &storage,
+                    &segment_paths,
+                    manifest.version,
+                    &tombstone_set,
+                    tombstone_fingerprint(&tombstone_set),
+                    hnsw,
+                    &metric,
+                );
             }));
         }
 
@@ -321,37 +320,28 @@ impl EngineInner {
 
         if opts.mode == SearchMode::Vector {
             let snapshot = self.build_vector_snapshot(&opts, &buffer_records)?;
-            let mut response = self
-                .query_engine
-                .search_vector_with_snapshot(&self.storage, &opts, &buffer_records, &snapshot)?;
+            let mut response = self.query_engine.search_vector_with_snapshot(
+                &self.storage,
+                &opts,
+                &buffer_records,
+                &snapshot,
+            )?;
 
             if opts.explain {
                 let metadata = self.lock_metadata()?;
-                let preview_map = metadata
-                    .fts_get_texts(
-                        &response
-                            .results
-                            .iter()
-                            .map(|r| r.chunk_id.clone())
-                            .collect::<Vec<_>>(),
-                    )
-                    .unwrap_or_default();
-                let query_text = opts.query_text.as_deref();
+                let preview_map = Self::load_previews(&metadata, &response.results);
+                let matched_terms = Self::matched_terms(opts.query_text.as_deref());
                 for (rank, r) in response.results.iter_mut().enumerate() {
-                    let preview = preview_map
-                        .get(&r.chunk_id)
-                        .map(|t| t.chars().take(200).collect());
-                    r.explain = Some(ExplainInfo {
-                        vector_score: Some(r.score),
-                        bm25_score: None,
-                        rrf_score: None,
-                        vector_rank: Some(rank + 1),
-                        bm25_rank: None,
-                        chunk_preview: preview,
-                        matched_terms: query_text
-                            .map(|qt| qt.split_whitespace().map(|s| s.to_string()).collect())
-                            .unwrap_or_default(),
-                    });
+                    r.explain = Some(Self::build_explain(
+                        &preview_map,
+                        &r.chunk_id,
+                        &matched_terms,
+                        Some(r.score),
+                        None,
+                        None,
+                        Some(rank + 1),
+                        None,
+                    ));
                 }
             }
 
@@ -377,32 +367,20 @@ impl EngineInner {
             if opts.explain {
                 let preview_map = {
                     let metadata = self.lock_metadata()?;
-                    metadata
-                        .fts_get_texts(
-                            &response
-                                .results
-                                .iter()
-                                .map(|r| r.chunk_id.clone())
-                                .collect::<Vec<_>>(),
-                        )
-                        .unwrap_or_default()
+                    Self::load_previews(&metadata, &response.results)
                 };
-                let query_text = opts.query_text.as_deref();
+                let matched_terms = Self::matched_terms(opts.query_text.as_deref());
                 for (rank, r) in response.results.iter_mut().enumerate() {
-                    let preview = preview_map
-                        .get(&r.chunk_id)
-                        .map(|t| t.chars().take(200).collect());
-                    r.explain = Some(ExplainInfo {
-                        vector_score: None,
-                        bm25_score: Some(r.score),
-                        rrf_score: None,
-                        vector_rank: None,
-                        bm25_rank: Some(rank + 1),
-                        chunk_preview: preview,
-                        matched_terms: query_text
-                            .map(|qt| qt.split_whitespace().map(|s| s.to_string()).collect())
-                            .unwrap_or_default(),
-                    });
+                    r.explain = Some(Self::build_explain(
+                        &preview_map,
+                        &r.chunk_id,
+                        &matched_terms,
+                        None,
+                        Some(r.score),
+                        None,
+                        None,
+                        Some(rank + 1),
+                    ));
                 }
             }
 
@@ -423,9 +401,12 @@ impl EngineInner {
                 explain: false,
                 ef_search: opts.ef_search,
             };
-            let vector_response = self
-                .query_engine
-                .search_vector_with_snapshot(&self.storage, &vector_opts, &buffer_records, &snapshot)?;
+            let vector_response = self.query_engine.search_vector_with_snapshot(
+                &self.storage,
+                &vector_opts,
+                &buffer_records,
+                &snapshot,
+            )?;
 
             let (keyword_results, preview_map) = {
                 let metadata = self.lock_metadata()?;
@@ -448,7 +429,9 @@ impl EngineInner {
                     .into_iter()
                     .map(|r| r.chunk_id)
                     .collect::<Vec<_>>();
-                    metadata.fts_get_texts(&fused_preview_ids).unwrap_or_default()
+                    metadata
+                        .fts_get_texts(&fused_preview_ids)
+                        .unwrap_or_default()
                 } else {
                     HashMap::new()
                 };
@@ -464,7 +447,7 @@ impl EngineInner {
             );
 
             if opts.explain {
-                let query_text = opts.query_text.as_deref();
+                let matched_terms = Self::matched_terms(opts.query_text.as_deref());
                 let vector_map: HashMap<String, (usize, f64)> = vector_response
                     .results
                     .iter()
@@ -480,21 +463,16 @@ impl EngineInner {
                 for r in &mut fused {
                     let v_info = vector_map.get(&r.chunk_id);
                     let k_info = keyword_map.get(&r.chunk_id);
-                    let preview = preview_map
-                        .get(&r.chunk_id)
-                        .map(|t| t.chars().take(200).collect());
-
-                    r.explain = Some(ExplainInfo {
-                        vector_score: v_info.map(|(_, s)| *s),
-                        bm25_score: k_info.map(|(_, s)| *s),
-                        rrf_score: Some(r.score),
-                        vector_rank: v_info.map(|(rank, _)| *rank),
-                        bm25_rank: k_info.map(|(rank, _)| *rank),
-                        chunk_preview: preview,
-                        matched_terms: query_text
-                            .map(|qt| qt.split_whitespace().map(|s| s.to_string()).collect())
-                            .unwrap_or_default(),
-                    });
+                    r.explain = Some(Self::build_explain(
+                        &preview_map,
+                        &r.chunk_id,
+                        &matched_terms,
+                        v_info.map(|(_, s)| *s),
+                        k_info.map(|(_, s)| *s),
+                        Some(r.score),
+                        v_info.map(|(rank, _)| *rank),
+                        k_info.map(|(rank, _)| *rank),
+                    ));
                 }
             }
 
@@ -651,7 +629,10 @@ impl EngineInner {
         })
     }
 
-    fn build_manifest_search_snapshot(&self, opts: &SearchOptions) -> Result<ManifestSearchSnapshot> {
+    fn build_manifest_search_snapshot(
+        &self,
+        opts: &SearchOptions,
+    ) -> Result<ManifestSearchSnapshot> {
         let metadata = self.lock_metadata()?;
         build_manifest_search_snapshot_from_metadata(&metadata, opts)
     }
@@ -668,7 +649,59 @@ impl EngineInner {
             .map_err(|_| AkiDbError::InvalidArgument("Write paths lock poisoned".to_string()))
     }
 
-    fn rebuild_fts_for_manifest(&self, metadata: &MetadataStore, manifest: &Manifest) -> Result<()> {
+    fn load_previews(
+        metadata: &MetadataStore,
+        results: &[SearchResult],
+    ) -> HashMap<String, String> {
+        metadata
+            .fts_get_texts(
+                &results
+                    .iter()
+                    .map(|result| result.chunk_id.clone())
+                    .collect::<Vec<_>>(),
+            )
+            .unwrap_or_default()
+    }
+
+    fn matched_terms(query_text: Option<&str>) -> Vec<String> {
+        query_text
+            .map(|text| {
+                text.split_whitespace()
+                    .map(|term| term.to_string())
+                    .collect()
+            })
+            .unwrap_or_default()
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn build_explain(
+        preview_map: &HashMap<String, String>,
+        chunk_id: &str,
+        matched_terms: &[String],
+        vector_score: Option<f64>,
+        bm25_score: Option<f64>,
+        rrf_score: Option<f64>,
+        vector_rank: Option<usize>,
+        bm25_rank: Option<usize>,
+    ) -> ExplainInfo {
+        ExplainInfo {
+            vector_score,
+            bm25_score,
+            rrf_score,
+            vector_rank,
+            bm25_rank,
+            chunk_preview: preview_map
+                .get(chunk_id)
+                .map(|text| text.chars().take(200).collect()),
+            matched_terms: matched_terms.to_vec(),
+        }
+    }
+
+    fn rebuild_fts_for_manifest(
+        &self,
+        metadata: &MetadataStore,
+        manifest: &Manifest,
+    ) -> Result<()> {
         metadata.fts_delete_collection(&manifest.collection_id)?;
 
         let tombstone_set: std::collections::HashSet<&str> =
@@ -698,7 +731,11 @@ impl EngineInner {
             let fts_refs: Vec<(&str, &str, &str)> = fts_owned
                 .iter()
                 .map(|(chunk_id, collection_id, chunk_text)| {
-                    (chunk_id.as_str(), collection_id.as_str(), chunk_text.as_str())
+                    (
+                        chunk_id.as_str(),
+                        collection_id.as_str(),
+                        chunk_text.as_str(),
+                    )
                 })
                 .collect();
             metadata.fts_insert_batch(&fts_refs)?;
@@ -753,7 +790,11 @@ fn build_manifest_search_snapshot_from_metadata(
             .tombstone_ids
             .iter()
             .cloned()
-            .chain(metadata.list_tombstone_chunk_ids(&opts.collection_id)?.into_iter())
+            .chain(
+                metadata
+                    .list_tombstone_chunk_ids(&opts.collection_id)?
+                    .into_iter(),
+            )
             .collect()
     } else {
         manifest.tombstone_ids.iter().cloned().collect()
@@ -809,22 +850,23 @@ mod tests {
         }
 
         let result = engine.search(SearchOptions {
-                collection_id: "docs".to_string(),
-                query_vector: vec![0.1, 0.2, 0.3, 0.4],
-                top_k: 5,
-                filters: None,
-                manifest_version: None,
-                include_uncommitted: false,
-                mode: SearchMode::Vector,
-                query_text: None,
-                vector_weight: 1.0,
-                keyword_weight: 1.0,
-                explain: false,
-                ef_search: None,
-            })
-            ;
+            collection_id: "docs".to_string(),
+            query_vector: vec![0.1, 0.2, 0.3, 0.4],
+            top_k: 5,
+            filters: None,
+            manifest_version: None,
+            include_uncommitted: false,
+            mode: SearchMode::Vector,
+            query_text: None,
+            vector_weight: 1.0,
+            keyword_weight: 1.0,
+            explain: false,
+            ef_search: None,
+        });
 
-        assert!(matches!(result, Err(AkiDbError::SegmentNotFound(segment_id)) if segment_id == "missing-segment"));
+        assert!(
+            matches!(result, Err(AkiDbError::SegmentNotFound(segment_id)) if segment_id == "missing-segment")
+        );
     }
 
     #[test]
@@ -907,7 +949,10 @@ mod tests {
             })
             .unwrap();
         assert!(
-            vector_result.results.iter().all(|r| r.chunk_id != "chunk-a"),
+            vector_result
+                .results
+                .iter()
+                .all(|r| r.chunk_id != "chunk-a"),
             "vector search should exclude chunk-a after an unpublished tombstone"
         );
 
@@ -928,12 +973,18 @@ mod tests {
             })
             .unwrap();
         assert!(
-            hybrid_result.results.iter().all(|r| r.chunk_id != "chunk-a"),
+            hybrid_result
+                .results
+                .iter()
+                .all(|r| r.chunk_id != "chunk-a"),
             "hybrid search should exclude chunk-a after an unpublished tombstone"
         );
 
         let published_manifest = engine.auto_publish("docs", "model", "sig-v2").unwrap();
-        assert_eq!(published_manifest.tombstone_ids, vec![String::from("chunk-a")]);
+        assert_eq!(
+            published_manifest.tombstone_ids,
+            vec![String::from("chunk-a")]
+        );
 
         let published_result = engine
             .search(SearchOptions {
@@ -952,11 +1003,16 @@ mod tests {
             })
             .unwrap();
         assert!(
-            published_result.results.iter().all(|r| r.chunk_id != "chunk-a"),
+            published_result
+                .results
+                .iter()
+                .all(|r| r.chunk_id != "chunk-a"),
             "vector search should exclude chunk-a after the tombstone is published"
         );
 
-        let rollback_manifest = engine.rollback("docs", &snapshot.manifest.manifest_id).unwrap();
+        let rollback_manifest = engine
+            .rollback("docs", &snapshot.manifest.manifest_id)
+            .unwrap();
         assert!(rollback_manifest.tombstone_ids.is_empty());
 
         let rollback_result = engine
@@ -976,7 +1032,10 @@ mod tests {
             })
             .unwrap();
         assert!(
-            rollback_result.results.iter().any(|r| r.chunk_id == "chunk-a"),
+            rollback_result
+                .results
+                .iter()
+                .any(|r| r.chunk_id == "chunk-a"),
             "vector search should restore chunk-a after rollback to a manifest without tombstones"
         );
 
@@ -997,7 +1056,10 @@ mod tests {
             })
             .unwrap();
         assert!(
-            rollback_keyword.results.iter().any(|r| r.chunk_id == "chunk-a"),
+            rollback_keyword
+                .results
+                .iter()
+                .any(|r| r.chunk_id == "chunk-a"),
             "keyword search should restore chunk-a after rollback to a manifest without tombstones"
         );
 
@@ -1018,7 +1080,10 @@ mod tests {
             })
             .unwrap();
         assert!(
-            rollback_hybrid.results.iter().any(|r| r.chunk_id == "chunk-a"),
+            rollback_hybrid
+                .results
+                .iter()
+                .any(|r| r.chunk_id == "chunk-a"),
             "hybrid search should restore chunk-a after rollback to a manifest without tombstones"
         );
     }
@@ -1080,7 +1145,10 @@ mod tests {
                 ef_search: None,
             })
             .unwrap();
-        assert!(before_rollback.results.iter().any(|r| r.chunk_id == "chunk-v1"));
+        assert!(before_rollback
+            .results
+            .iter()
+            .any(|r| r.chunk_id == "chunk-v1"));
 
         engine.rollback("docs", &manifest0.manifest_id).unwrap();
 
@@ -1100,7 +1168,10 @@ mod tests {
                 ef_search: None,
             })
             .unwrap();
-        assert!(after_rollback_old.results.iter().any(|r| r.chunk_id == "chunk-v0"));
+        assert!(after_rollback_old
+            .results
+            .iter()
+            .any(|r| r.chunk_id == "chunk-v0"));
 
         let after_rollback_new = engine
             .search(SearchOptions {
@@ -1119,7 +1190,10 @@ mod tests {
             })
             .unwrap();
         assert!(
-            after_rollback_new.results.iter().all(|r| r.chunk_id != "chunk-v1"),
+            after_rollback_new
+                .results
+                .iter()
+                .all(|r| r.chunk_id != "chunk-v1"),
             "keyword search should not return chunks from manifests newer than the rollback target"
         );
     }

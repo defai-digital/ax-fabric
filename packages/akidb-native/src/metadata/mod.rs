@@ -10,8 +10,8 @@
 //! same SQL schema, same column types, same JSON encoding for array columns.
 
 use rusqlite::{params, Connection, OptionalExtension};
-use std::collections::HashMap;
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 
 use crate::error::{AkiDbError, Result};
 
@@ -20,6 +20,7 @@ const MIGRATION_002: &str = include_str!("sql/002-fts5.sql");
 const MIGRATION_003: &str = include_str!("sql/003-fts5-trigram.sql");
 const MIGRATION_004: &str = include_str!("sql/004-collection-params.sql");
 const MIGRATION_005: &str = include_str!("sql/005-index-types.sql");
+const FTS_TABLES: [&str; 2] = ["chunk_text_fts", "chunk_text_trigram"];
 
 // ─── Data types ──────────────────────────────────────────────────────────────
 
@@ -125,11 +126,9 @@ impl MetadataStore {
 
     fn get_schema_version(&self) -> i64 {
         self.conn
-            .query_row(
-                "SELECT MAX(version) FROM schema_version",
-                [],
-                |row| row.get::<_, Option<i64>>(0),
-            )
+            .query_row("SELECT MAX(version) FROM schema_version", [], |row| {
+                row.get::<_, Option<i64>>(0)
+            })
             .unwrap_or(Some(0))
             .unwrap_or(0)
     }
@@ -297,7 +296,8 @@ impl MetadataStore {
                     created_at: row.get(8)?,
                 })
             })?;
-            rows.collect::<std::result::Result<Vec<_>, _>>().map_err(|e| e.into())
+            rows.collect::<std::result::Result<Vec<_>, _>>()
+                .map_err(|e| e.into())
         } else {
             let mut stmt = self.conn.prepare(
                 "SELECT segment_id, collection_id, record_count, dimension, size_bytes, checksum, status, storage_path, created_at
@@ -316,7 +316,8 @@ impl MetadataStore {
                     created_at: row.get(8)?,
                 })
             })?;
-            rows.collect::<std::result::Result<Vec<_>, _>>().map_err(|e| e.into())
+            rows.collect::<std::result::Result<Vec<_>, _>>()
+                .map_err(|e| e.into())
         }
     }
 
@@ -462,7 +463,8 @@ impl MetadataStore {
                     reason_code: row.get(3)?,
                 })
             })?;
-            rows.collect::<std::result::Result<Vec<_>, _>>().map_err(|e| e.into())
+            rows.collect::<std::result::Result<Vec<_>, _>>()
+                .map_err(|e| e.into())
         } else {
             let mut stmt = self.conn.prepare(
                 "SELECT chunk_id, collection_id, deleted_at, reason_code
@@ -476,7 +478,8 @@ impl MetadataStore {
                     reason_code: row.get(3)?,
                 })
             })?;
-            rows.collect::<std::result::Result<Vec<_>, _>>().map_err(|e| e.into())
+            rows.collect::<std::result::Result<Vec<_>, _>>()
+                .map_err(|e| e.into())
         }
     }
 
@@ -485,7 +488,8 @@ impl MetadataStore {
             "SELECT chunk_id FROM tombstones WHERE collection_id = ?1 ORDER BY chunk_id ASC",
         )?;
         let rows = stmt.query_map(params![collection_id], |row| row.get(0))?;
-        rows.collect::<std::result::Result<Vec<_>, _>>().map_err(|e| e.into())
+        rows.collect::<std::result::Result<Vec<_>, _>>()
+            .map_err(|e| e.into())
     }
 
     pub fn delete_tombstones(&self, chunk_ids: &[String]) -> Result<usize> {
@@ -527,24 +531,19 @@ impl MetadataStore {
     pub fn fts_insert(&self, chunk_id: &str, collection_id: &str, chunk_text: &str) -> Result<()> {
         // Delete-then-insert to make re-ingestion idempotent.
         // FTS5 virtual tables don't support ON CONFLICT / UPSERT.
-        self.conn.execute(
-            "DELETE FROM chunk_text_fts WHERE chunk_id = ?1 AND collection_id = ?2",
-            params![chunk_id, collection_id],
-        )?;
-        self.conn.execute(
-            "INSERT INTO chunk_text_fts(chunk_id, collection_id, chunk_text)
-             VALUES (?1, ?2, ?3)",
-            params![chunk_id, collection_id, chunk_text],
-        )?;
-        self.conn.execute(
-            "DELETE FROM chunk_text_trigram WHERE chunk_id = ?1 AND collection_id = ?2",
-            params![chunk_id, collection_id],
-        )?;
-        self.conn.execute(
-            "INSERT INTO chunk_text_trigram(chunk_id, collection_id, chunk_text)
-             VALUES (?1, ?2, ?3)",
-            params![chunk_id, collection_id, chunk_text],
-        )?;
+        for table in FTS_TABLES {
+            self.conn.execute(
+                &format!("DELETE FROM {table} WHERE chunk_id = ?1 AND collection_id = ?2"),
+                params![chunk_id, collection_id],
+            )?;
+            self.conn.execute(
+                &format!(
+                    "INSERT INTO {table}(chunk_id, collection_id, chunk_text)
+                     VALUES (?1, ?2, ?3)"
+                ),
+                params![chunk_id, collection_id, chunk_text],
+            )?;
+        }
         Ok(())
     }
 
@@ -558,24 +557,19 @@ impl MetadataStore {
         // MetadataStore is the sole owner of the connection.
         let tx = self.conn.unchecked_transaction()?;
         for (chunk_id, collection_id, chunk_text) in records {
-            tx.execute(
-                "DELETE FROM chunk_text_fts WHERE chunk_id = ?1 AND collection_id = ?2",
-                params![chunk_id, collection_id],
-            )?;
-            tx.execute(
-                "INSERT INTO chunk_text_fts(chunk_id, collection_id, chunk_text)
-                 VALUES (?1, ?2, ?3)",
-                params![chunk_id, collection_id, chunk_text],
-            )?;
-            tx.execute(
-                "DELETE FROM chunk_text_trigram WHERE chunk_id = ?1 AND collection_id = ?2",
-                params![chunk_id, collection_id],
-            )?;
-            tx.execute(
-                "INSERT INTO chunk_text_trigram(chunk_id, collection_id, chunk_text)
-                 VALUES (?1, ?2, ?3)",
-                params![chunk_id, collection_id, chunk_text],
-            )?;
+            for table in FTS_TABLES {
+                tx.execute(
+                    &format!("DELETE FROM {table} WHERE chunk_id = ?1 AND collection_id = ?2"),
+                    params![chunk_id, collection_id],
+                )?;
+                tx.execute(
+                    &format!(
+                        "INSERT INTO {table}(chunk_id, collection_id, chunk_text)
+                         VALUES (?1, ?2, ?3)"
+                    ),
+                    params![chunk_id, collection_id, chunk_text],
+                )?;
+            }
         }
         tx.commit()?;
         Ok(())
@@ -583,27 +577,23 @@ impl MetadataStore {
 
     /// Remove a chunk's text from both FTS5 indexes.
     pub fn fts_delete(&self, chunk_id: &str, collection_id: &str) -> Result<()> {
-        self.conn.execute(
-            "DELETE FROM chunk_text_fts WHERE chunk_id = ?1 AND collection_id = ?2",
-            params![chunk_id, collection_id],
-        )?;
-        self.conn.execute(
-            "DELETE FROM chunk_text_trigram WHERE chunk_id = ?1 AND collection_id = ?2",
-            params![chunk_id, collection_id],
-        )?;
+        for table in FTS_TABLES {
+            self.conn.execute(
+                &format!("DELETE FROM {table} WHERE chunk_id = ?1 AND collection_id = ?2"),
+                params![chunk_id, collection_id],
+            )?;
+        }
         Ok(())
     }
 
     /// Remove all chunk text rows for a collection from both FTS5 indexes.
     pub fn fts_delete_collection(&self, collection_id: &str) -> Result<()> {
-        self.conn.execute(
-            "DELETE FROM chunk_text_fts WHERE collection_id = ?1",
-            params![collection_id],
-        )?;
-        self.conn.execute(
-            "DELETE FROM chunk_text_trigram WHERE collection_id = ?1",
-            params![collection_id],
-        )?;
+        for table in FTS_TABLES {
+            self.conn.execute(
+                &format!("DELETE FROM {table} WHERE collection_id = ?1"),
+                params![collection_id],
+            )?;
+        }
         Ok(())
     }
 
@@ -775,7 +765,9 @@ mod tests {
         let store = test_store();
         store.create_collection(&sample_collection("a")).unwrap();
         store.create_collection(&sample_collection("b")).unwrap();
-        store.soft_delete_collection("b", "2026-01-02T00:00:00Z").unwrap();
+        store
+            .soft_delete_collection("b", "2026-01-02T00:00:00Z")
+            .unwrap();
 
         let list = store.list_collections().unwrap();
         assert_eq!(list.len(), 1);
@@ -785,14 +777,18 @@ mod tests {
     #[test]
     fn soft_delete_returns_false_for_missing() {
         let store = test_store();
-        let changed = store.soft_delete_collection("ghost", "2026-01-01T00:00:00Z").unwrap();
+        let changed = store
+            .soft_delete_collection("ghost", "2026-01-01T00:00:00Z")
+            .unwrap();
         assert!(!changed);
     }
 
     #[test]
     fn create_and_get_segment() {
         let store = test_store();
-        store.create_collection(&sample_collection("coll-1")).unwrap();
+        store
+            .create_collection(&sample_collection("coll-1"))
+            .unwrap();
 
         let seg = SegmentMetadata {
             segment_id: "seg-001".to_string(),
@@ -815,7 +811,9 @@ mod tests {
     #[test]
     fn list_segments_with_status_filter() {
         let store = test_store();
-        store.create_collection(&sample_collection("coll-1")).unwrap();
+        store
+            .create_collection(&sample_collection("coll-1"))
+            .unwrap();
 
         for (id, status) in [("s1", "ready"), ("s2", "building"), ("s3", "ready")] {
             store
@@ -843,7 +841,9 @@ mod tests {
     #[test]
     fn update_segment_status() {
         let store = test_store();
-        store.create_collection(&sample_collection("coll-1")).unwrap();
+        store
+            .create_collection(&sample_collection("coll-1"))
+            .unwrap();
         store
             .create_segment(&SegmentMetadata {
                 segment_id: "s1".to_string(),
@@ -868,7 +868,9 @@ mod tests {
     #[test]
     fn segment_status_update_controls_listing() {
         let store = test_store();
-        store.create_collection(&sample_collection("coll-1")).unwrap();
+        store
+            .create_collection(&sample_collection("coll-1"))
+            .unwrap();
         store
             .create_segment(&SegmentMetadata {
                 segment_id: "s1".to_string(),
@@ -895,7 +897,9 @@ mod tests {
     #[test]
     fn create_and_get_manifest() {
         let store = test_store();
-        store.create_collection(&sample_collection("coll-1")).unwrap();
+        store
+            .create_collection(&sample_collection("coll-1"))
+            .unwrap();
 
         let m = Manifest {
             manifest_id: "m-001".to_string(),
@@ -919,7 +923,9 @@ mod tests {
     #[test]
     fn get_latest_manifest() {
         let store = test_store();
-        store.create_collection(&sample_collection("coll-1")).unwrap();
+        store
+            .create_collection(&sample_collection("coll-1"))
+            .unwrap();
 
         for v in 1..=3 {
             store
@@ -944,7 +950,9 @@ mod tests {
     #[test]
     fn get_manifest_by_version() {
         let store = test_store();
-        store.create_collection(&sample_collection("coll-1")).unwrap();
+        store
+            .create_collection(&sample_collection("coll-1"))
+            .unwrap();
 
         for v in 1..=3 {
             store
@@ -965,13 +973,18 @@ mod tests {
         let manifest = store.get_manifest_by_version("coll-1", 2).unwrap().unwrap();
         assert_eq!(manifest.version, 2);
         assert_eq!(manifest.segment_ids, vec!["seg-2"]);
-        assert!(store.get_manifest_by_version("coll-1", 99).unwrap().is_none());
+        assert!(store
+            .get_manifest_by_version("coll-1", 99)
+            .unwrap()
+            .is_none());
     }
 
     #[test]
     fn list_manifests_ordered_by_version() {
         let store = test_store();
-        store.create_collection(&sample_collection("coll-1")).unwrap();
+        store
+            .create_collection(&sample_collection("coll-1"))
+            .unwrap();
 
         for v in [3, 1, 2] {
             store
@@ -997,7 +1010,9 @@ mod tests {
     #[test]
     fn create_and_list_tombstones() {
         let store = test_store();
-        store.create_collection(&sample_collection("coll-1")).unwrap();
+        store
+            .create_collection(&sample_collection("coll-1"))
+            .unwrap();
 
         store
             .create_tombstone(&Tombstone {
@@ -1019,7 +1034,9 @@ mod tests {
         let all = store.list_tombstones("coll-1", None).unwrap();
         assert_eq!(all.len(), 2);
 
-        let filtered = store.list_tombstones("coll-1", Some("file_deleted")).unwrap();
+        let filtered = store
+            .list_tombstones("coll-1", Some("file_deleted"))
+            .unwrap();
         assert_eq!(filtered.len(), 1);
         assert_eq!(filtered[0].chunk_id, "c-1");
 
@@ -1030,7 +1047,9 @@ mod tests {
     #[test]
     fn delete_tombstones_bulk_removes_entries() {
         let store = test_store();
-        store.create_collection(&sample_collection("coll-1")).unwrap();
+        store
+            .create_collection(&sample_collection("coll-1"))
+            .unwrap();
         store
             .create_tombstone(&Tombstone {
                 chunk_id: "c-1".to_string(),
@@ -1059,7 +1078,9 @@ mod tests {
     #[test]
     fn bulk_delete_tombstones() {
         let store = test_store();
-        store.create_collection(&sample_collection("coll-1")).unwrap();
+        store
+            .create_collection(&sample_collection("coll-1"))
+            .unwrap();
 
         for i in 1..=5 {
             store
@@ -1083,7 +1104,9 @@ mod tests {
     #[test]
     fn create_tombstone_rejects_invalid_reason_code() {
         let store = test_store();
-        store.create_collection(&sample_collection("coll-1")).unwrap();
+        store
+            .create_collection(&sample_collection("coll-1"))
+            .unwrap();
 
         let err = store
             .create_tombstone(&Tombstone {
@@ -1101,7 +1124,9 @@ mod tests {
     #[test]
     fn tombstone_count() {
         let store = test_store();
-        store.create_collection(&sample_collection("coll-1")).unwrap();
+        store
+            .create_collection(&sample_collection("coll-1"))
+            .unwrap();
 
         for i in 1..=3 {
             store
@@ -1131,7 +1156,9 @@ mod tests {
     #[test]
     fn fts_insert_and_search() {
         let store = test_store();
-        store.create_collection(&sample_collection("coll-1")).unwrap();
+        store
+            .create_collection(&sample_collection("coll-1"))
+            .unwrap();
 
         // Verify the latest schema version is applied.
         let version = store.get_schema_version();
@@ -1145,52 +1172,103 @@ mod tests {
         ).unwrap();
         assert!(table_exists, "chunk_text_fts table should exist");
 
-        store.fts_insert("c-1", "coll-1", "The quick brown fox jumps over the lazy dog").unwrap();
-        store.fts_insert("c-2", "coll-1", "Machine learning and artificial intelligence").unwrap();
-        store.fts_insert("c-3", "coll-1", "The brown fox was very quick today").unwrap();
+        store
+            .fts_insert(
+                "c-1",
+                "coll-1",
+                "The quick brown fox jumps over the lazy dog",
+            )
+            .unwrap();
+        store
+            .fts_insert(
+                "c-2",
+                "coll-1",
+                "Machine learning and artificial intelligence",
+            )
+            .unwrap();
+        store
+            .fts_insert("c-3", "coll-1", "The brown fox was very quick today")
+            .unwrap();
 
         // FTS5 MATCH queries use term-based matching.
         let results = store.fts_search("coll-1", "quick", 10).unwrap();
-        assert!(!results.is_empty(), "FTS5 search for 'quick' should find results");
+        assert!(
+            !results.is_empty(),
+            "FTS5 search for 'quick' should find results"
+        );
         let ids: Vec<&str> = results.iter().map(|(id, _)| id.as_str()).collect();
         assert!(ids.contains(&"c-1"));
 
         // Multi-term search.
         let results2 = store.fts_search("coll-1", "brown fox", 10).unwrap();
-        assert!(!results2.is_empty(), "FTS5 search for 'brown fox' should find results");
+        assert!(
+            !results2.is_empty(),
+            "FTS5 search for 'brown fox' should find results"
+        );
     }
 
     #[test]
     fn fts_trigram_cjk_search() {
         let store = test_store();
-        store.create_collection(&sample_collection("coll-1")).unwrap();
+        store
+            .create_collection(&sample_collection("coll-1"))
+            .unwrap();
 
         // Verify the trigram table exists.
-        let trigram_exists: bool = store.conn.query_row(
-            "SELECT COUNT(*) > 0 FROM sqlite_master WHERE name='chunk_text_trigram'",
-            [],
-            |row| row.get(0),
-        ).unwrap();
+        let trigram_exists: bool = store
+            .conn
+            .query_row(
+                "SELECT COUNT(*) > 0 FROM sqlite_master WHERE name='chunk_text_trigram'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
         assert!(trigram_exists, "chunk_text_trigram table should exist");
 
         // Insert CJK text (Japanese, Korean, Chinese).
-        store.fts_insert("ja-1", "coll-1", "すべての人間は生れながらにして自由であり").unwrap();
-        store.fts_insert("ko-1", "coll-1", "모든 인류 구성원의 천부의 존엄성과 동등하고").unwrap();
-        store.fts_insert("zh-1", "coll-1", "人人生而自由在尊严和权利上一律平等").unwrap();
-        store.fts_insert("fr-1", "coll-1", "Tous les êtres humains naissent libres").unwrap();
-        store.fts_insert("de-1", "coll-1", "Alle Menschen sind frei und gleich an Würde").unwrap();
+        store
+            .fts_insert("ja-1", "coll-1", "すべての人間は生れながらにして自由であり")
+            .unwrap();
+        store
+            .fts_insert(
+                "ko-1",
+                "coll-1",
+                "모든 인류 구성원의 천부의 존엄성과 동등하고",
+            )
+            .unwrap();
+        store
+            .fts_insert("zh-1", "coll-1", "人人生而自由在尊严和权利上一律平等")
+            .unwrap();
+        store
+            .fts_insert("fr-1", "coll-1", "Tous les êtres humains naissent libres")
+            .unwrap();
+        store
+            .fts_insert(
+                "de-1",
+                "coll-1",
+                "Alle Menschen sind frei und gleich an Würde",
+            )
+            .unwrap();
 
         // Verify data is in the trigram table.
-        let count: i64 = store.conn.query_row(
-            "SELECT COUNT(*) FROM chunk_text_trigram", [], |row| row.get(0),
-        ).unwrap();
+        let count: i64 = store
+            .conn
+            .query_row("SELECT COUNT(*) FROM chunk_text_trigram", [], |row| {
+                row.get(0)
+            })
+            .unwrap();
         assert_eq!(count, 5, "Should have 5 rows in trigram table");
 
         // Trigram search needs at least 3 characters. Use a longer CJK substring.
         // FTS5 trigram tokenizer works on character trigrams, so "自由であり" should work.
-        let trigram_results = store.fts_trigram_search("coll-1", "人間は生れ", 10).unwrap();
+        let trigram_results = store
+            .fts_trigram_search("coll-1", "人間は生れ", 10)
+            .unwrap();
         eprintln!("trigram results for '人間は生れ': {:?}", trigram_results);
-        assert!(!trigram_results.is_empty(), "Trigram should find Japanese text");
+        assert!(
+            !trigram_results.is_empty(),
+            "Trigram should find Japanese text"
+        );
         let ids: Vec<&str> = trigram_results.iter().map(|(id, _)| id.as_str()).collect();
         assert!(ids.contains(&"ja-1"), "Should find Japanese chunk");
 
@@ -1202,16 +1280,23 @@ mod tests {
         assert!(ko_ids.contains(&"ko-1"));
 
         // Chinese substring.
-        let zh_results = store.fts_trigram_search("coll-1", "自由在尊严", 10).unwrap();
+        let zh_results = store
+            .fts_trigram_search("coll-1", "自由在尊严", 10)
+            .unwrap();
         eprintln!("trigram results for '自由在尊严': {:?}", zh_results);
         assert!(!zh_results.is_empty(), "Trigram should find Chinese text");
 
         // Trigram also works for Latin scripts (substring match).
-        let fr_results = store.fts_trigram_search("coll-1", "êtres humains", 10).unwrap();
+        let fr_results = store
+            .fts_trigram_search("coll-1", "êtres humains", 10)
+            .unwrap();
         assert!(!fr_results.is_empty(), "Trigram should find French text");
 
         // German with umlaut.
         let de_results = store.fts_trigram_search("coll-1", "Würde", 10).unwrap();
-        assert!(!de_results.is_empty(), "Trigram should find German text with umlaut");
+        assert!(
+            !de_results.is_empty(),
+            "Trigram should find German text with umlaut"
+        );
     }
 }
