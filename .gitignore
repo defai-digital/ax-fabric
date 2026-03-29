@@ -19,9 +19,12 @@ __pycache__/
 **/__pycache__/
 *.pyc
 
-# AutomatosX runtime / agent directories (entire tree)
+# AutomatosX runtime / agent directories
 .automatosx/
-automatosx/
+automatosx/*
+!automatosx/PRD/
+automatosx/PRD/*
+!automatosx/PRD/ax-fabric-prd-v3.2-open-core-enterprise-boundary.md
 ax.config.json
 automatosx.config.json
 opencode.json
@@ -35,7 +38,10 @@ CLAUDE.md
 .gemini/
 
 # Project subdirectories not part of the monorepo
-docs/
+docs/*
+!docs/open-core-enterprise-boundary.md
+!docs/enterprise-repo-bootstrap.md
+!docs/public-private-integration-contract.md
 issues/
 autoqa/
 web-app/

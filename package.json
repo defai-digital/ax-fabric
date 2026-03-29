@@ -12,6 +12,7 @@
     "test": "pnpm -r test",
     "test:watch": "vitest",
     "lint": "pnpm -r lint --if-present",
+    "check:boundary": "node scripts/check-open-core-boundary.mjs",
     "typecheck": "pnpm -r typecheck",
     "clean": "pnpm -r clean --if-present && cargo clean --manifest-path packages/akidb-native/Cargo.toml 2>/dev/null; true",
     "ci:build": "pnpm install --frozen-lockfile && pnpm build",

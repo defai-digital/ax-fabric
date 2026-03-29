@@ -29,6 +29,16 @@ The commercial license is provided by separate written agreement. A summary is a
 
 - Contact: `enquiry@automatosx.com`
 
-## 3. Packaging Metadata
+## 3. Public Repository Scope
+
+This public repository contains the AX Fabric open-source core.
+
+It may describe commercial licensing and enterprise packaging, but it should not contain proprietary enterprise implementation code.
+
+Commercial agreements may cover separately distributed private repositories, packages, containers, connectors, deployment bundles, or add-ons that are not published in this repository.
+
+For repository-boundary guidance, see [docs/open-core-enterprise-boundary.md](./docs/open-core-enterprise-boundary.md).
+
+## 4. Packaging Metadata
 
 Registry and package metadata may advertise the open-source leg as `AGPL-3.0-or-later` for compatibility with npm, Cargo, and Python packaging tooling. That metadata does not remove the availability of separate commercial licensing from the copyright holder.

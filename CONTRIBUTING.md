@@ -49,6 +49,20 @@ Include enough detail for reproduction and impact assessment.
 - Open-source use is governed by the project licensing documents in the repository root.
 - Business and Enterprise support or licensing enquiries should be sent to `enquiry@automatosx.com`.
 
+## Open Core Boundary
+
+This public repository is the open-source AX Fabric repository.
+
+Do not submit or propose proprietary enterprise implementation code for inclusion here.
+
+Enterprise-only connectors, deployment bundles, customer-specific integrations, and proprietary add-ons belong in a separate private repository rather than this public codebase.
+
+For the repository boundary and private-repo model, see:
+
+- [docs/open-core-enterprise-boundary.md](/Users/akiralam/code/ax-fabric/docs/open-core-enterprise-boundary.md)
+- [docs/enterprise-repo-bootstrap.md](/Users/akiralam/code/ax-fabric/docs/enterprise-repo-bootstrap.md)
+- [docs/public-private-integration-contract.md](/Users/akiralam/code/ax-fabric/docs/public-private-integration-contract.md)
+
 ## Maintainer Discretion
 
 The maintainers may invite specific external contributors to collaborate on targeted changes. Unless that invitation is explicit, public issue reporting is the supported contribution path.

@@ -59,6 +59,9 @@ jobs:
       - name: Lint
         run: pnpm lint
 
+      - name: Open-core boundary check
+        run: pnpm check:boundary
+
       - name: Test (vitest)
         run: pnpm test
         env:

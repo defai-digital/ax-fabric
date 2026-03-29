@@ -10,7 +10,7 @@
 [![Tests](https://img.shields.io/badge/tests-1353%20passing-brightgreen)](./packages)
 [![Test Files](https://img.shields.io/badge/test%20files-67-blue)](./packages)
 
-AX Fabric is a commercial backend component that ingests enterprise documents into AkiDB, applies governed semantic workflows on top of that corpus, and serves the resulting knowledge layer to private AI systems.
+AX Fabric is a dual-licensed backend for governed document ingestion, retrieval, and semantic workflows. This public repository contains the open-source core. Commercial packaging and proprietary enterprise add-ons are distributed separately under commercial agreement.
 
 AX Studio is the free client in the product family. AX Fabric is the billable backend. Teams can use AX Studio out of the box, connect their own tools, or engage AutomatosX to build custom tools and workflows on top of AX Fabric.
 
@@ -239,6 +239,19 @@ Commercial engagements may include:
 - support and service terms
 
 See [LICENSING.md](./LICENSING.md) and [LICENSE-COMMERCIAL.md](./LICENSE-COMMERCIAL.md).
+
+## Open Core Boundary
+
+This repository is the public open-core repository for AX Fabric.
+
+- public repo: open-source core packages, documentation, build, test, and release flow
+- private repo: enterprise-only connectors, deployment bundles, control-plane code, and proprietary add-ons
+
+When enterprise systems integrate with AX Fabric, prefer process or network boundaries such as HTTP, MCP, CLI, or queue-driven workers instead of private in-process extensions.
+
+See [docs/open-core-enterprise-boundary.md](./docs/open-core-enterprise-boundary.md).
+
+For the next layer of implementation planning, see [docs/enterprise-repo-bootstrap.md](./docs/enterprise-repo-bootstrap.md) and [docs/public-private-integration-contract.md](./docs/public-private-integration-contract.md).
 
 ## Product Context
 

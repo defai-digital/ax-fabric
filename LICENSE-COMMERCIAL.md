@@ -21,6 +21,8 @@ Commercial agreements may cover one or more of the following:
 - custom connectors, custom tools, and workflow integrations built by AutomatosX
 - commercial support, deployment assistance, and enterprise service terms
 
+Commercial packaging may include separately distributed private repositories, private packages, internal container images, proprietary connectors, or customer-specific deployment artifacts. Those artifacts are not required to be published in this public repository unless separately agreed in writing.
+
 ## Open-Source vs Commercial Path
 
 - Open-source path: use AX Fabric under `AGPL-3.0-or-later`
