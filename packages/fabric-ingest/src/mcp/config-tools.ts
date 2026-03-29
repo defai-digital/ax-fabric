@@ -43,8 +43,7 @@ export function registerConfigTools(server: McpServer, deps: ConfigToolsDeps): v
     async (args) => {
       try {
         const parts = args.key.split(".");
-        const obj = JSON.parse(JSON.stringify(config)) as Record<string, unknown>;
-        let current: Record<string, unknown> = obj;
+        let current = config as unknown as Record<string, unknown>;
         for (let i = 0; i < parts.length - 1; i += 1) {
           const key = parts[i]!;
           const next = current[key];

@@ -242,6 +242,25 @@ describe("MCP E2E", () => {
     }
   });
 
+  it("fabric_config_set updates the in-memory MCP config view", async () => {
+    const setResult = await client.callTool({
+      name: "fabric_config_set",
+      arguments: {
+        key: "retrieval.default_layer",
+        value: "semantic",
+      },
+    });
+    expect(setResult.isError).toBeFalsy();
+
+    const showResult = await client.callTool({
+      name: "fabric_config_show",
+      arguments: {},
+    });
+    expect(showResult.isError).toBeFalsy();
+    const data = JSON.parse((showResult.content as Array<{ text: string }>)[0]!.text);
+    expect(data.retrieval.default_layer).toBe("semantic");
+  });
+
   it("fabric_search keyword mode does not require embedding", async () => {
     const throwingEmbedder: EmbedderProvider = {
       modelId: "test-embed",
