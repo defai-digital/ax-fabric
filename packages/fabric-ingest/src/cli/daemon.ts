@@ -53,11 +53,15 @@ function cycleResultToStatus(
   result: CycleResult,
 ): Pick<DaemonStatus, "total_files" | "indexed_files" | "pending_files" | "error_files"> {
   const m = result.pipeline;
+  const succeeded = m?.filesSucceeded ?? 0;
+  const unchanged = m?.filesUnchanged ?? 0;
   return {
     total_files: m?.filesScanned ?? 0,
-    indexed_files: m?.filesSucceeded ?? 0,
-    // "pending" = unchanged files not re-processed this cycle
-    pending_files: m?.filesUnchanged ?? 0,
+    // Unchanged files were already indexed in a prior cycle — count them as indexed.
+    indexed_files: succeeded + unchanged,
+    // Only files that are truly waiting (added but not yet processed) are pending.
+    // In practice the pipeline processes all added files per cycle, so this is 0.
+    pending_files: 0,
     error_files: m?.filesFailed ?? 0,
   };
 }
