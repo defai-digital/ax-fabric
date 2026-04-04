@@ -11,6 +11,7 @@ import {
   resolveDataRoot,
   type FabricConfig,
 } from "./config-loader.js";
+import { expandTilde } from "./runtime.js";
 
 type CheckLevel = "ok" | "warn" | "fail";
 
@@ -145,7 +146,7 @@ export function registerDoctorCommand(program: Command): void {
         detail: existsSync(dataRoot) ? dataRoot : `${dataRoot} (missing; run 'ax-fabric init' or ingest once)`,
       }, Boolean(opts.json));
 
-      const akidbRoot = config.akidb.root.replace(/^~/, homedir());
+      const akidbRoot = expandTilde(config.akidb.root);
       push(report, {
         level: existsSync(akidbRoot) ? "ok" : "warn",
         label: "akidb-root",

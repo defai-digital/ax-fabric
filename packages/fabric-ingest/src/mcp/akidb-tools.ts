@@ -12,6 +12,7 @@ import {
   DEFAULT_SEARCH_TOP_K,
   DEFAULT_SEARCH_MODE,
   MCP_PIPELINE_SIGNATURE,
+  MCP_EMBEDDING_MODEL_ID,
   MCP_CHUNK_ID_PREFIX,
 } from "../constants.js";
 
@@ -93,7 +94,7 @@ export function registerAkiDbTools(server: McpServer, db: AkiDB): void {
           doc_version: r.doc_version ?? "v1",
           chunk_hash: r.chunk_hash ?? `${MCP_CHUNK_ID_PREFIX}${r.chunk_id}`,
           pipeline_signature: r.pipeline_signature ?? MCP_PIPELINE_SIGNATURE,
-          embedding_model_id: r.embedding_model_id ?? MCP_PIPELINE_SIGNATURE,
+          embedding_model_id: r.embedding_model_id ?? MCP_EMBEDDING_MODEL_ID,
           vector: r.vector,
           metadata: toRecordMetadata(r.metadata),
           chunk_text: r.chunk_text,

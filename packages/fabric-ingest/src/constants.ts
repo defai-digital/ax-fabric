@@ -108,6 +108,9 @@ export const DEFAULT_SCHEDULER_MAX_QUEUE_AGE_MS = 150;
 /** pipeline_signature used for records inserted directly via MCP. */
 export const MCP_PIPELINE_SIGNATURE = "mcp";
 
+/** Default embedding_model_id for records inserted directly via MCP. */
+export const MCP_EMBEDDING_MODEL_ID = "mcp-unknown";
+
 /** Prefix for chunk_hash when no hash is provided via MCP. */
 export const MCP_CHUNK_ID_PREFIX = "mcp:";
 

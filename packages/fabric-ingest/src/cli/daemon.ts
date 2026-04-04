@@ -8,14 +8,15 @@
  */
 
 import { existsSync, mkdirSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
 import { homedir } from "node:os";
+import { join } from "node:path";
 
 import type { Command } from "commander";
 import { AkiDB } from "@ax-fabric/akidb";
 import { AX_FABRIC_HOME_DIR, DAEMON_STATUS_FILENAME } from "../constants.js";
 
 import { loadConfig, resolveConfigPath, resolveDataRoot } from "./config-loader.js";
+import { expandTilde } from "./runtime.js";
 import { createEmbedderFromConfig } from "./create-embedder.js";
 import { Daemon } from "../daemon/watch.js";
 import type { CycleResult } from "../daemon/watch.js";
@@ -82,7 +83,7 @@ export function registerDaemonCommand(program: Command): void {
         daemon_pid: process.pid,
       };
 
-      const akidbRoot = config.akidb.root.replace(/^~/, homedir());
+      const akidbRoot = expandTilde(config.akidb.root);
       const db = new AkiDB({ storagePath: akidbRoot });
       const embedder = createEmbedderFromConfig(config);
 

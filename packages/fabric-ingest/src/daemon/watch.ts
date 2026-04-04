@@ -131,10 +131,6 @@ export class Daemon {
         try {
           cycleResult = await this.runCycle();
           this.onCycleEnd?.(cycleResult);
-          // Only count successful cycles: failed cycles write no segments,
-          // so counting them toward the compaction threshold would trigger
-          // compaction on an unchanged database.
-          this.cyclesSinceLastCompact++;
         } catch (err) {
           console.error(`[daemon] cycle error: ${err instanceof Error ? err.message : String(err)}`);
           this.onCycleError?.(err);
@@ -234,6 +230,9 @@ export class Daemon {
       compacted = true;
       this.cyclesSinceLastCompact = 0;
     } else {
+      // Only count successful non-compacting cycles: failed cycles write no
+      // segments, so counting them toward the compaction threshold would
+      // trigger compaction on an unchanged database.
       this.cyclesSinceLastCompact++;
     }
 
